@@ -1,0 +1,19 @@
+<launch>
+	<node name="random_walk" pkg="random_walk" type="walk" output="screen">
+	  <param name="speed_angle_min" 	value="0.2" 	/>
+	  <param name="speed_angle_max" 	value="0.5"	/>
+	  <param name="speed_vel_min" 		value="0.1"	/>
+      <param name="speed_vel_max" 		value="0.2"	/>
+      <param name="speed_angle_free" value="0.3"/>
+	  <param name="distance_drive_min" 	value="0.2"	/>
+	  <param name="distance_drive_max" 	value="0.5"	/>
+	  <param name="distance_angle_min" 	value="0.15"	/>
+	  <param name="distance_angle_max" 	value="1.571"	/>
+	  <param name="distance_obstacle_front" value="0.45"	/>
+	  <param name="distance_obstacle_side" 	value="0.35"	/>
+      <param name="threshold_angle" 	value="0.07"	/>
+      <param name="distance_robot_offset" value="0.1" />
+      <remap from="cmd_vel" to="cmd_vel_mux/input/navi"/>
+	</node>
+</launch>
+
