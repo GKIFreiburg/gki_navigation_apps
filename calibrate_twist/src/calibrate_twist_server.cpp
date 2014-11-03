@@ -15,8 +15,25 @@ using namespace Eigen;
     as_(nh_, name, boost::bind(&CalibrateAction::executeCB, this, _1), false),
     action_name_(name)
   {
+    //bool cache_flag = false;
     as_.start();
   }
+
+  /*
+  void CalibrateAction::odo_cacheCB(const nav_msgs::Odometry::ConstPtr &msg)
+  {
+
+      if(cache_flag == false)
+      {
+          ROS_INFO("X");
+          cache_flag = true;
+      }
+      else
+      {
+          ROS_INFO("Y");
+      }
+  }
+*/
 
   CalibrateAction::~CalibrateAction(void)
   {
@@ -26,16 +43,21 @@ using namespace Eigen;
   {
     bool success = true;
     bool stability_reached = false;
+    int stability_counter = 0;
 
     // read all necessary parameters
     nh_.getParamCached("/calibrate_twist/odo_cache_depths", odo_cache_depths);
     nh_.getParamCached("/calibrate_twist/stability_timeout", stability_timeout);
     nh_.getParamCached("/calibrate_twist/stability_intervalDuration", stability_intervalDuration);
+    nh_.getParamCached("/calibrate_twist/stability_xThreshold", stability_xThreshold);
+    nh_.getParamCached("/calibrate_twist/stability_zThreshold", stability_zThreshold);
 
 
     //ros::Subscriber sub = nh_.subscribe("/odom", odo_cache_depths, someCallback);
     message_filters::Subscriber<nav_msgs::Odometry> sub(nh_, "/odom", 1);
     message_filters::Cache<nav_msgs::Odometry> odo_cache(sub, odo_cache_depths);
+    //odo_cache.registerCallback(boost::bind(&CalibrateAction::odo_cacheCB, this, _1));
+
 
     twist_pub = nh_.advertise<geometry_msgs::Twist>("cmd_vel", 1);
     ros::Rate r(10);
@@ -69,36 +91,67 @@ using namespace Eigen;
         // driving the robot with the intended parameters
         twist_pub.publish(goal->twist_goal);
 
-        //test only
-        nav_msgs::Odometry::ConstPtr odo_ptr = odo_cache.getElemBeforeTime(odo_cache.getLatestTime());
-        if(odo_ptr)
-            ROS_INFO("constance check: %f on x-axis, %f on z-rot", odo_ptr->twist.twist.linear.x,odo_ptr->twist.covariance[35]);
 
 
         // get a odometry interval out of the cache and check for constance of the contained twists
-        //std::vector<nav_msgs::Odometry> odo_interval = odo_cache.getInterval((odo_cache.getLatestTime()-ros::Duration(stability_intervalDuration)),odo_cache.getLatestTime());
-        //std::vector<geometry_msgs::TwistWithCovariance> twist_interval;
-        //for(unsigned int i=0; i<odo_interval.size(); i++)
-        //{
-//            twist_interval.push_back(odo_interval[i].twist);
-//        }
-        //geometry_msgs::TwistWithCovariance result_twist;
-//        calcTwistWithCov(twist_interval,&result_twist);
-        //ROS_INFO("constance check: %f on x-axis, %f on z-rot", result_twist.covariance[0],result_twist.covariance[35]);
+
+        ros::Time start = odo_cache.getLatestTime(); // results in weird absolute time once cache is filled?!
+        ROS_INFO("start time: %d", start.toSec());
+        // result of getLatestTime is zero in the beginning
+        if(!start.isZero())
+        {
+            start = start - ros::Duration(stability_intervalDuration); // take the correct interval into account
+            ros::Time end = odo_cache.getLatestTime();
+            std::vector<nav_msgs::Odometry::ConstPtr> odo_interval = odo_cache.getInterval(start,end);
+            std::vector<geometry_msgs::TwistWithCovariance> twist_interval;
+            // extract the twists out of the odo values
+            for(unsigned int i=0; i<odo_interval.size(); i++)
+            {
+                twist_interval.push_back(odo_interval[i]->twist);
+            }
+
+            geometry_msgs::TwistWithCovariance result_twist;
+            // calc the covariance out of the interval
+            calcTwistWithCov(twist_interval,&result_twist);
+            ROS_INFO("%d values: constance check: %f on x-axis, %f on z-rot", odo_interval.size(), result_twist.covariance[0],result_twist.covariance[35]);
+
+            //only if both values are lower than the threshold for 3x in a row we assume stability is reached
+            if((result_twist.covariance[0] < stability_xThreshold) && (result_twist.covariance[35] < stability_zThreshold))
+            {
+                stability_counter++;
+                if (stability_counter > 2)
+                {
+                    stability_reached = true;
+                    ROS_INFO("Stability reached");
+                    break;
+                }
+            }
+            else
+            {
+                // reset counter so we only count three reached criteria in a row
+                stability_counter = 0;
+            }
+            ROS_INFO("stability_counter: %i", stability_counter);
+        }
+        else
+        {
+            ROS_INFO("Dooohhh! Invalid Start time!");
+        }
 
         r.sleep();
     }
+
+
     if(!stability_reached)
     {
         twist_pub.publish(zero_twist); // safety first, stop robot
         as_.setAborted();
+        ROS_INFO("%s: Aborted. No stability reached within timeout", action_name_.c_str());
         success = false;
     }
-
-    start = ros::Time::now();
-
-    if(stability_reached)
+    else
     {
+    start = ros::Time::now();
     // starting calibration run
     while((ros::Time::now().toSec()) < (start.toSec() + goal->duration.toSec()))
     {
@@ -215,6 +268,9 @@ void CalibrateAction::calcTwistWithCov(std::vector<geometry_msgs::Twist> twists,
 
     //Map<MatrixXd>( resultC, covMat.rows(), covMat.cols() ) = covMat;
     Map<Matrix<double,6,6,RowMajor> >(resultC, 6,6) = covMat;
+
+    // print for test only
+    std::cout << "CovMat:\n" << covMat <<"\n";
 }
 
 void CalibrateAction::calcTwistWithCov(std::vector<geometry_msgs::TwistWithCovariance> twists, geometry_msgs::TwistWithCovariance* resultTwist)
@@ -242,7 +298,12 @@ void CalibrateAction::calcTwistWithCov(std::vector<geometry_msgs::TwistWithCovar
     double *resultC = &(resultTwist->covariance[0]);
 
     //Map<MatrixXd>( resultC, covMat.rows(), covMat.cols() ) = covMat;
+
+    // arrange resultMatrix as RowMajor as required by TwistWithCovariance type
     Map<Matrix<double,6,6,RowMajor> >(resultC, 6,6) = covMat;
+
+    // print for test only
+    std::cout << "CovMat:\n" << covMat <<"\n";
 }
 
 

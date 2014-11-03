@@ -16,13 +16,12 @@
 
 using namespace Eigen;
 
-
 class CalibrateAction
 {
 protected:
 
   ros::NodeHandle nh_;
-  ros::Publisher twist_pub;
+  ros::Publisher twist_pub;    
   // NodeHandle instance must be created before this line. Otherwise strange error may occur.
   actionlib::SimpleActionServer<calibrate_twist::CalibrateAction> as_;
   std::string action_name_;
@@ -30,8 +29,12 @@ protected:
   calibrate_twist::CalibrateFeedback feedback_;
   calibrate_twist::CalibrateResult result_;
 
+  //bool cache_flag;
+
   void calcTwistWithCov(std::vector<geometry_msgs::Twist> twists, geometry_msgs::TwistWithCovariance* resultTwist);
   void calcTwistWithCov(std::vector<geometry_msgs::TwistWithCovariance> twists, geometry_msgs::TwistWithCovariance* resultTwist);
+  //void odo_cacheCB(const nav_msgs::Odometry::ConstPtr &msg);
+
 public:
 
   CalibrateAction(std::string name);
@@ -40,17 +43,17 @@ public:
 
   void executeCB(const calibrate_twist::CalibrateGoalConstPtr &goal);
 
+
 };
 
 
 //------------ Parameter Variables--------------
 
-// size of the overall voronoi grid
-double odo_cache_depths;
-double stability_timeout;
-double stability_intervalDuration;
-
-
+double odo_cache_depths; // how many values of the odometry are gonna be stored
+double stability_timeout; // maximum time in seconds until a stability in speed has to be reached
+double stability_intervalDuration; // defines in seconds how long in the past the interval of do values reaches, to check stability
+double stability_xThreshold; // defines the maximal covariance on x lin-axis which is tolerated as stable
+double stability_zThreshold; // defines the maximal covariance on z rot-axis which is tolerated as stable
 
 #endif
 

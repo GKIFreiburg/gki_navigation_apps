@@ -15,6 +15,7 @@
   <depend package="tf"/>
   <depend package="actionlib_msgs"/>
   <depend package="message_filters"/>
+  <rosdep name="eigen"/>
 
 </package>
 
