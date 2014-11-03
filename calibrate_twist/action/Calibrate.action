@@ -1,0 +1,9 @@
+#goal definition
+duration duration
+geometry_msgs/Twist twist_goal
+---
+#result definition
+geometry_msgs/TwistWithCovariance calibrated_result
+geometry_msgs/TwistWithCovariance odo_result
+---
+#feedback definition

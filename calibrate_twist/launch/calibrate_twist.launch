@@ -1,0 +1,7 @@
+<launch>
+  <node pkg="calibrate_twist" name="calibrate_twist" type="calibrate_twist" output="screen">
+    <param name="odo_cache_depths" value="100" />
+    <param name="stability_timeout" value="5" />
+    <param name="stability_intervalDuration" value="0.5" />
+  </node>
+</launch>

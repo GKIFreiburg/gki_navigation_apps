@@ -1,0 +1,21 @@
+<package>
+  <description brief="calibrate_twist">
+
+     calibrate_twist
+
+  </description>
+  <author>marschall-RoboCupUser</author>
+  <license>BSD</license>
+  <review status="unreviewed" notes=""/>
+  <url>http://ros.org/wiki/calibrate_twist</url>
+  <depend package="roscpp"/>
+  <depend package="actionlib"/>
+  <depend package="roslib"/>
+  <depend package="std_msgs"/>
+  <depend package="tf"/>
+  <depend package="actionlib_msgs"/>
+  <depend package="message_filters"/>
+
+</package>
+
+
