@@ -14,6 +14,8 @@
 #include <calibrate_twist/eigen/Eigenvalues>
 #include <calibrate_twist/eigen/Dense>
 
+#include <tf/transform_listener.h>
+
 using namespace Eigen;
 
 class CalibrateAction
@@ -28,6 +30,8 @@ protected:
   // create messages that are used to published feedback/result
   calibrate_twist::CalibrateFeedback feedback_;
   calibrate_twist::CalibrateResult result_;
+
+  tf::TransformListener* listener;
 
   //bool cache_flag;
 

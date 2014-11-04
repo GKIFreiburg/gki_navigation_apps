@@ -52,6 +52,7 @@ using namespace Eigen;
     nh_.getParamCached("/calibrate_twist/stability_xThreshold", stability_xThreshold);
     nh_.getParamCached("/calibrate_twist/stability_zThreshold", stability_zThreshold);
 
+    listener = new tf::TransformListener((goal->duration)*2); // set cache time twice the time of the calibr. run
 
     //ros::Subscriber sub = nh_.subscribe("/odom", odo_cache_depths, someCallback);
     message_filters::Subscriber<nav_msgs::Odometry> sub(nh_, "/odom", 1);
@@ -70,13 +71,13 @@ using namespace Eigen;
     zero_twist.linear.y = 0; // necessary
     zero_twist.linear.z = 0; // necessary
 
-    ros::Time start = ros::Time::now();
-
     // publish info to the console for the user
     ROS_INFO("%s: Executing, running calibration run for %f seconds with linear speed %f, angular speed %f", action_name_.c_str(), goal->duration.toSec(), goal->twist_goal.linear.x, goal->twist_goal.angular.z);
 
+
     // bringing the robot to the goal speed
-    while((ros::Time::now().toSec()) < (start.toSec() + stability_timeout))
+    ros::Time stability_timeout_start = ros::Time::now();
+    while((ros::Time::now().toSec()) < (stability_timeout_start.toSec() + stability_timeout))
     {
         // check that preempt has not been requested by the client
         if (as_.isPreemptRequested() || !ros::ok())
@@ -91,18 +92,16 @@ using namespace Eigen;
         // driving the robot with the intended parameters
         twist_pub.publish(goal->twist_goal);
 
-
-
-        // get a odometry interval out of the cache and check for constance of the contained twists
-
-        ros::Time start = odo_cache.getLatestTime(); // results in weird absolute time once cache is filled?!
-        ROS_INFO("start time: %d", start.toSec());
-        // result of getLatestTime is zero in the beginning
-        if(!start.isZero())
+    // checking continuity of achieved velocity
+        // get a odometry interval out of the cache and check for continuity of the contained twists
+        ros::Time continuity_start = odo_cache.getLatestTime(); // results in weird absolute time once cache is filled?!
+        ROS_INFO("start time: %f", continuity_start.toSec());
+        // result of getLatestTime is zero in the beginning and crashes if we calculate with the substracted interval duration
+        if(!continuity_start.isZero()) // maybe assure here that at least x values are in cache already
         {
-            start = start - ros::Duration(stability_intervalDuration); // take the correct interval into account
-            ros::Time end = odo_cache.getLatestTime();
-            std::vector<nav_msgs::Odometry::ConstPtr> odo_interval = odo_cache.getInterval(start,end);
+            continuity_start = continuity_start - ros::Duration(stability_intervalDuration); // take the correct interval into account
+            ros::Time continuity_end = odo_cache.getLatestTime();
+            std::vector<nav_msgs::Odometry::ConstPtr> odo_interval = odo_cache.getInterval(continuity_start,continuity_end);
             std::vector<geometry_msgs::TwistWithCovariance> twist_interval;
             // extract the twists out of the odo values
             for(unsigned int i=0; i<odo_interval.size(); i++)
@@ -113,13 +112,13 @@ using namespace Eigen;
             geometry_msgs::TwistWithCovariance result_twist;
             // calc the covariance out of the interval
             calcTwistWithCov(twist_interval,&result_twist);
-            ROS_INFO("%d values: constance check: %f on x-axis, %f on z-rot", odo_interval.size(), result_twist.covariance[0],result_twist.covariance[35]);
+            ROS_INFO("%lu values: constance check: %f on x-axis, %f on z-rot", odo_interval.size(), result_twist.covariance[0],result_twist.covariance[35]);
 
             //only if both values are lower than the threshold for 3x in a row we assume stability is reached
             if((result_twist.covariance[0] < stability_xThreshold) && (result_twist.covariance[35] < stability_zThreshold))
             {
                 stability_counter++;
-                if (stability_counter > 2)
+                if (stability_counter > 2) // make this a parameter?
                 {
                     stability_reached = true;
                     ROS_INFO("Stability reached");
@@ -135,7 +134,7 @@ using namespace Eigen;
         }
         else
         {
-            ROS_INFO("Dooohhh! Invalid Start time!");
+            ROS_INFO("Dooohhh! Invalid Start time: %f !", continuity_start.toSec());
         }
 
         r.sleep();
@@ -151,29 +150,29 @@ using namespace Eigen;
     }
     else
     {
-    start = ros::Time::now();
-    // starting calibration run
-    while((ros::Time::now().toSec()) < (start.toSec() + goal->duration.toSec()))
-    {
-        // check that preempt has not been requested by the client
-        if (as_.isPreemptRequested() || !ros::ok())
-        {
-          twist_pub.publish(zero_twist); // safety first, stop robot
-          ROS_INFO("%s: Preempted", action_name_.c_str());
-          // set the action state to preempted
-          as_.setPreempted();
-          success = false;
-          break;
-        }
-        // driving the robot with the intended parameters
-        twist_pub.publish(goal->twist_goal);
-        r.sleep();
-    }
-    }
-
-    // checking constance of achieved velocity
-
     // starting calibration run for given duration
+        ros::Time calibration_start = ros::Time::now();
+        // starting calibration run
+        while((ros::Time::now().toSec()) < (calibration_start.toSec() + goal->duration.toSec()))
+        {
+            // check that preempt has not been requested by the client
+            if (as_.isPreemptRequested() || !ros::ok())
+            {
+              twist_pub.publish(zero_twist); // safety first, stop robot
+              ROS_INFO("%s: Preempted", action_name_.c_str());
+              // set the action state to preempted
+              as_.setPreempted();
+              success = false;
+              break;
+            }
+            // driving the robot with the intended parameters
+            twist_pub.publish(goal->twist_goal);
+            r.sleep();
+        }
+    }
+
+    twist_pub.publish(zero_twist); // safety first, stop robot
+
 
     // calculating the result
 
@@ -185,7 +184,6 @@ using namespace Eigen;
 
     if(success)
     {
-      twist_pub.publish(zero_twist); // safety first, stop robot
       result_.calibrated_result = tw;
       result_.odo_result = tw;
       ROS_INFO("%s: Succeeded", action_name_.c_str());
