@@ -11,8 +11,8 @@
 #include <message_filters/cache.h>
 #include <nav_msgs/Odometry.h>
 
-#include <calibrate_twist/eigen/Eigenvalues>
-#include <calibrate_twist/eigen/Dense>
+#include <Eigen/Eigenvalues>
+#include <Eigen/Dense>
 
 #include <tf/transform_listener.h>
 
