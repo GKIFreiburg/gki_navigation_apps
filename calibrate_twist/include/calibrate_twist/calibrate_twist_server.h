@@ -31,6 +31,9 @@ protected:
   calibrate_twist::CalibrateFeedback feedback_;
   calibrate_twist::CalibrateResult result_;
 
+  ros::Time calibration_start;
+  ros::Time calibration_end;
+
   tf::TransformListener* listener;
 
   //bool cache_flag;
@@ -58,6 +61,8 @@ double stability_timeout; // maximum time in seconds until a stability in speed 
 double stability_intervalDuration; // defines in seconds how long in the past the interval of do values reaches, to check stability
 double stability_xThreshold; // defines the maximal covariance on x lin-axis which is tolerated as stable
 double stability_zThreshold; // defines the maximal covariance on z rot-axis which is tolerated as stable
+double calibration_calc_interval; // value in seconds how long one calculated interval of the calibration should be
+std::string tfFixedFrame; // defines the fixed frame for the transform lookup call
 
 #endif
 

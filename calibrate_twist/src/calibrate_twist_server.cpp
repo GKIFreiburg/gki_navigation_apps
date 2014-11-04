@@ -51,6 +51,9 @@ using namespace Eigen;
     nh_.getParamCached("/calibrate_twist/stability_intervalDuration", stability_intervalDuration);
     nh_.getParamCached("/calibrate_twist/stability_xThreshold", stability_xThreshold);
     nh_.getParamCached("/calibrate_twist/stability_zThreshold", stability_zThreshold);
+    nh_.getParamCached("/calibrate_twist/calibration_calc_interval", calibration_calc_interval);
+    nh_.getParamCached("/calibrate_twist/tfFixedFrame", tfFixedFrame);
+
 
     listener = new tf::TransformListener((goal->duration)*2); // set cache time twice the time of the calibr. run
 
@@ -74,8 +77,9 @@ using namespace Eigen;
     // publish info to the console for the user
     ROS_INFO("%s: Executing, running calibration run for %f seconds with linear speed %f, angular speed %f", action_name_.c_str(), goal->duration.toSec(), goal->twist_goal.linear.x, goal->twist_goal.angular.z);
 
-
+//**************************************************
     // bringing the robot to the goal speed
+//**************************************************
     ros::Time stability_timeout_start = ros::Time::now();
     while((ros::Time::now().toSec()) < (stability_timeout_start.toSec() + stability_timeout))
     {
@@ -92,27 +96,29 @@ using namespace Eigen;
         // driving the robot with the intended parameters
         twist_pub.publish(goal->twist_goal);
 
+//**************************************************
     // checking continuity of achieved velocity
+//**************************************************
+
         // get a odometry interval out of the cache and check for continuity of the contained twists
         ros::Time continuity_start = odo_cache.getLatestTime(); // results in weird absolute time once cache is filled?!
-        ROS_INFO("start time: %f", continuity_start.toSec());
         // result of getLatestTime is zero in the beginning and crashes if we calculate with the substracted interval duration
         if(!continuity_start.isZero()) // maybe assure here that at least x values are in cache already
         {
             continuity_start = continuity_start - ros::Duration(stability_intervalDuration); // take the correct interval into account
             ros::Time continuity_end = odo_cache.getLatestTime();
-            std::vector<nav_msgs::Odometry::ConstPtr> odo_interval = odo_cache.getInterval(continuity_start,continuity_end);
+            std::vector<nav_msgs::Odometry::ConstPtr> consistenty_odo_interval = odo_cache.getInterval(continuity_start,continuity_end);
             std::vector<geometry_msgs::TwistWithCovariance> twist_interval;
             // extract the twists out of the odo values
-            for(unsigned int i=0; i<odo_interval.size(); i++)
+            for(unsigned int i=0; i<consistenty_odo_interval.size(); i++)
             {
-                twist_interval.push_back(odo_interval[i]->twist);
+                twist_interval.push_back(consistenty_odo_interval[i]->twist);
             }
 
             geometry_msgs::TwistWithCovariance result_twist;
             // calc the covariance out of the interval
             calcTwistWithCov(twist_interval,&result_twist);
-            ROS_INFO("%lu values: constance check: %f on x-axis, %f on z-rot", odo_interval.size(), result_twist.covariance[0],result_twist.covariance[35]);
+            ROS_INFO("%lu values: constance check: %4.3f on x-axis, %4.3f on z-rot", consistenty_odo_interval.size(), result_twist.covariance[0],result_twist.covariance[35]);
 
             //only if both values are lower than the threshold for 3x in a row we assume stability is reached
             if((result_twist.covariance[0] < stability_xThreshold) && (result_twist.covariance[35] < stability_zThreshold))
@@ -121,7 +127,7 @@ using namespace Eigen;
                 if (stability_counter > 2) // make this a parameter?
                 {
                     stability_reached = true;
-                    ROS_INFO("Stability reached");
+                    ROS_INFO("Stability reached after %f seconds", ros::Time::now().toSec()-stability_timeout_start.toSec() );
                     break;
                 }
             }
@@ -130,7 +136,7 @@ using namespace Eigen;
                 // reset counter so we only count three reached criteria in a row
                 stability_counter = 0;
             }
-            ROS_INFO("stability_counter: %i", stability_counter);
+            ROS_INFO("start time: %.2f , stability_cnt: %i",continuity_start.toSec(), stability_counter);
         }
         else
         {
@@ -150,8 +156,11 @@ using namespace Eigen;
     }
     else
     {
+//**************************************************
     // starting calibration run for given duration
-        ros::Time calibration_start = ros::Time::now();
+//**************************************************
+
+        calibration_start = ros::Time::now();
         // starting calibration run
         while((ros::Time::now().toSec()) < (calibration_start.toSec() + goal->duration.toSec()))
         {
@@ -169,12 +178,57 @@ using namespace Eigen;
             twist_pub.publish(goal->twist_goal);
             r.sleep();
         }
-    }
-
+        calibration_end = ros::Time::now();
+    }     
+    // end of movement, therefore robo is stopped
     twist_pub.publish(zero_twist); // safety first, stop robot
 
-
+//**************************************************
     // calculating the result
+//**************************************************
+    // create the transform that we fill, using tf
+    std::vector<tf::StampedTransform> movement_transforms;
+    unsigned int interval_steps = goal->duration.toSec() / calibration_calc_interval;
+    for(unsigned int i = 1; i<=(interval_steps);i++)
+    {
+        tf::StampedTransform tempTransform;
+
+        std::vector<nav_msgs::Odometry::ConstPtr> calibration_odo_interval = odo_cache.getInterval(calibration_start,calibration_start+ros::Duration(i*calibration_calc_interval));
+        /*
+        calibration_odo_interval.front()->header.frame_id;
+        calibration_odo_interval.front()->header.stamp;
+        calibration_odo_interval.back()->header.frame_id;
+        calibration_odo_interval.back)->header.stamp;
+        */
+        // make the tf lookup to get the transformation from one scan to the other
+        if(!calibration_odo_interval.empty())
+        {
+            try{
+              listener->waitForTransform(calibration_odo_interval.front()->header.frame_id, calibration_odo_interval.front()->header.stamp,
+                                        calibration_odo_interval.back()->header.frame_id, calibration_odo_interval.back()->header.stamp,
+                                        tfFixedFrame, ros::Duration(1.0));
+
+
+              // uses the two scans and /odom as fixed frame to get a transformation
+              // transform naming: from_to (e.g. transformOld_New means from Old to New)
+
+              // calculates the transform from source (scanOld) to target (scanNew)
+              listener->lookupTransform(calibration_odo_interval.front()->header.frame_id, calibration_odo_interval.front()->header.stamp,
+                                        calibration_odo_interval.back()->header.frame_id, calibration_odo_interval.back()->header.stamp,
+                                        tfFixedFrame, tempTransform);
+              // store calculated transform
+              movement_transforms.push_back(tempTransform); // what happens if exception is thrown? not guaranteed that all transforms can be retrieved
+            }
+            catch (tf::TransformException ex){
+              ROS_ERROR("%s",ex.what());
+            }
+        }
+        else
+        {
+            ROS_INFO("No Odo Data received from calibration run ");
+        }
+    }
+
 
 
     geometry_msgs::TwistWithCovariance tw;
@@ -298,10 +352,11 @@ void CalibrateAction::calcTwistWithCov(std::vector<geometry_msgs::TwistWithCovar
     //Map<MatrixXd>( resultC, covMat.rows(), covMat.cols() ) = covMat;
 
     // arrange resultMatrix as RowMajor as required by TwistWithCovariance type
-    Map<Matrix<double,6,6,RowMajor> >(resultC, 6,6) = covMat;
+    Map<Matrix<double,6,6,RowMajor> >(resultC, 6,6) = covMat; // unclear if it works as it's supposed to
 
     // print for test only
     std::cout << "CovMat:\n" << covMat <<"\n";
+    //std::cout << "CovMat:\n" << Map<Matrix<double,6,6,RowMajor> >(resultC, 6,6) <<"\n"; // test only
 }
 
 

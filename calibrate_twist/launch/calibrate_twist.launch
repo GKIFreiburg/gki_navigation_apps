@@ -5,5 +5,7 @@
     <param name="stability_intervalDuration" value="0.5" />
     <param name="stability_xThreshold" value="0.2" />
     <param name="stability_zThreshold" value="0.2" />
+    <param name="calibration_calc_interval" value="0.1" />
+    <param name="tfFixedFrame" value="/odom" />
   </node>
 </launch>
