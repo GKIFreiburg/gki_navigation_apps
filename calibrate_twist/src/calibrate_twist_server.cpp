@@ -46,13 +46,14 @@ using namespace Eigen;
     int stability_counter = 0;
 
     // read all necessary parameters
-    nh_.getParamCached("/calibrate_twist/odo_cache_depths", odo_cache_depths);
-    nh_.getParamCached("/calibrate_twist/stability_timeout", stability_timeout);
-    nh_.getParamCached("/calibrate_twist/stability_intervalDuration", stability_intervalDuration);
-    nh_.getParamCached("/calibrate_twist/stability_xThreshold", stability_xThreshold);
-    nh_.getParamCached("/calibrate_twist/stability_zThreshold", stability_zThreshold);
-    nh_.getParamCached("/calibrate_twist/calibration_calc_interval", calibration_calc_interval);
-    nh_.getParamCached("/calibrate_twist/tfFixedFrame", tfFixedFrame);
+    ros::NodeHandle nhPriv("~");
+    nhPriv.getParamCached("odo_cache_depths", odo_cache_depths);
+    nhPriv.getParamCached("stability_timeout", stability_timeout);
+    nhPriv.getParamCached("stability_intervalDuration", stability_intervalDuration);
+    nhPriv.getParamCached("stability_xThreshold", stability_xThreshold);
+    nhPriv.getParamCached("stability_zThreshold", stability_zThreshold);
+    nhPriv.getParamCached("calibration_calc_interval", calibration_calc_interval);
+    nhPriv.getParamCached("tfFixedFrame", tfFixedFrame);
 
 
     listener = new tf::TransformListener((goal->duration)*2); // set cache time twice the time of the calibr. run
