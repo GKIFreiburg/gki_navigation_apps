@@ -9,7 +9,7 @@
     <param name="calibration_calc_interval" value="0.1" />
     <param name="tfFixedFrame" value="/odom" />
     <param name="robotFrame" value="/base_footprint" />
-
+    <param name="transforms_interval_size" value= "4" />
 
   </node>
 </launch>

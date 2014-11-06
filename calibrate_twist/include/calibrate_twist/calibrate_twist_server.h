@@ -42,6 +42,9 @@ protected:
   geometry_msgs::TwistWithCovariance calcTwistWithCov(std::vector<nav_msgs::Odometry> odos);
   geometry_msgs::TwistWithCovariance calcTwistWithCov(std::vector<nav_msgs::Odometry::ConstPtr> odos_ptr);
 
+  geometry_msgs::TwistWithCovariance estimateTwWithCovFromTrajectory(std::vector<tf::StampedTransform> transforms);
+  geometry_msgs::Twist getTwistFromTransforms(tf::StampedTransform trans1, tf::StampedTransform trans2);
+
 public:
 
   CalibrateAction(std::string name);
@@ -64,7 +67,8 @@ double stability_zThreshold; // defines the maximal covariance on z rot-axis whi
 double calibration_calc_interval; // value in seconds how long one calculated interval of the calibration should be
 std::string tfFixedFrame; // defines the fixed frame for the transform lookup call
 std::string robotFrame; // defines the robot frame for the transform lookup call
-double minStabilityDuration;
+double minStabilityDuration; // time in seconds for how long stability criteria must be met
+int transforms_interval_size;
 
 #endif
 

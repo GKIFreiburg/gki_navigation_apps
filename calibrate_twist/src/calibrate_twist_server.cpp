@@ -40,6 +40,8 @@ using namespace Eigen;
     nhPriv.getParamCached("tfFixedFrame", tfFixedFrame);
     nhPriv.getParamCached("robotFrame", robotFrame);
     nhPriv.getParamCached("minStabilityDuration", minStabilityDuration);
+    nhPriv.getParamCached("transforms_interval_size", transforms_interval_size);
+
 
 
     listener = new tf::TransformListener((goal->duration)*2); // set cache time twice the time of the calibr. run
@@ -216,6 +218,9 @@ using namespace Eigen;
     // calculating odo based result
     geometry_msgs::TwistWithCovariance twistFromOdometry = calcTwistWithCov(calibration_odo_interval);
 
+    // calculating tf based result
+    geometry_msgs::TwistWithCovariance twistFromTf = estimateTwWithCovFromTrajectory(movement_transforms);
+
 
 
 //**************************************************
@@ -224,7 +229,7 @@ using namespace Eigen;
 
     if(success)
     {
-      //result_.calibrated_result = tw;
+      result_.calibrated_result = twistFromTf;
       result_.odo_result = twistFromOdometry;
       ROS_INFO("%s: Succeeded", action_name_.c_str());
       // set the action state to succeeded
@@ -317,3 +322,27 @@ geometry_msgs::TwistWithCovariance CalibrateAction::calcTwistWithCov(std::vector
 
     return calcTwistWithCov(temp_twistsWC);
 }
+
+geometry_msgs::TwistWithCovariance CalibrateAction::estimateTwWithCovFromTrajectory(std::vector<tf::StampedTransform> transforms)
+{
+    std::vector<geometry_msgs::Twist> transform_twists;
+    for(unsigned int i=0; i<transforms.size()-transforms_interval_size; i++)
+    {
+        transform_twists.push_back(getTwistFromTransforms(transforms[i],transforms[i+transforms_interval_size]));
+    }
+
+    return calcTwistWithCov(transform_twists);
+}
+
+
+geometry_msgs::Twist CalibrateAction::getTwistFromTransforms(tf::StampedTransform trans1, tf::StampedTransform trans2)
+{
+    geometry_msgs::Twist result_twist;
+    result_twist.linear = trans2.getOrigin() - trans1.getOrigin();
+    result_twist.angular.z = tf::getYaw(trans2.getRotation() - trans1.getRotation());
+    result_twist.angular.x = 0;
+    result_twist.angular.y = 0;
+
+    return result_twist;
+}
+
