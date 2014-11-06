@@ -329,7 +329,8 @@ geometry_msgs::TwistWithCovariance CalibrateAction::estimateTwWithCovFromTraject
     for(unsigned int i=0; i<transforms.size()-transforms_interval_size; i++)
     {
         ros::Duration dur = transforms[i+transforms_interval_size].stamp_ - transforms[i].stamp_;
-        geometry_msgs::Pose tempPose = convertTransformInPose(transforms[i+transforms_interval_size].inverseTimes(transforms[i]));
+        //geometry_msgs::Pose tempPose = convertTransformInPose(transforms[i+transforms_interval_size].inverseTimes(transforms[i]));
+        tf::Pose tempPose = (transforms[i+transforms_interval_size].inverseTimes(transforms[i]));
         geometry_msgs::Twist tempTwist = calcTwistFromPose(tempPose,dur);
         transform_twists.push_back(tempTwist);
     }
@@ -345,6 +346,21 @@ geometry_msgs::Twist CalibrateAction::calcTwistFromPose(geometry_msgs::Pose _pos
     result_twist.angular.y = 0;
     result_twist.angular.z = (tf::getYaw(_pose.orientation)) / _dur.toSec();
     double distance = sqrt((_pose.position.y)*(_pose.position.y)+(_pose.position.x)*(_pose.position.x));
+    result_twist.linear.x = distance / _dur.toSec();
+    result_twist.linear.y = 0;
+    result_twist.linear.z = 0;
+
+    return result_twist;
+}
+
+geometry_msgs::Twist CalibrateAction::calcTwistFromPose(tf::Pose _pose, ros::Duration _dur)
+{
+    geometry_msgs::Twist result_twist;
+
+    result_twist.angular.x = 0;
+    result_twist.angular.y = 0;
+    result_twist.angular.z = (tf::getYaw(_pose.getRotation())) / _dur.toSec();
+    double distance = sqrt((_pose.getOrigin().getY())*(_pose.getOrigin().getY())+(_pose.getOrigin().getX())*(_pose.getOrigin().getX()));
     result_twist.linear.x = distance / _dur.toSec();
     result_twist.linear.y = 0;
     result_twist.linear.z = 0;

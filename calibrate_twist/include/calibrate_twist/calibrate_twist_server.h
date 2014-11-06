@@ -44,6 +44,7 @@ protected:
 
   geometry_msgs::TwistWithCovariance estimateTwWithCovFromTrajectory(std::vector<tf::StampedTransform> transforms);
   geometry_msgs::Twist calcTwistFromPose(geometry_msgs::Pose _pose, ros::Duration _dur);
+  geometry_msgs::Twist calcTwistFromPose(tf::Pose _pose, ros::Duration _dur);
   geometry_msgs::Pose convertTransformInPose(tf::Transform trans);
 
 public:
