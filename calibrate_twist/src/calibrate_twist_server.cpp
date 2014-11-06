@@ -328,21 +328,41 @@ geometry_msgs::TwistWithCovariance CalibrateAction::estimateTwWithCovFromTraject
     std::vector<geometry_msgs::Twist> transform_twists;
     for(unsigned int i=0; i<transforms.size()-transforms_interval_size; i++)
     {
-        transform_twists.push_back(getTwistFromTransforms(transforms[i],transforms[i+transforms_interval_size]));
+        ros::Duration dur = transforms[i+transforms_interval_size].stamp_ - transforms[i].stamp_;
+        geometry_msgs::Pose tempPose = convertTransformInPose(transforms[i+transforms_interval_size].inverseTimes(transforms[i]));
+        geometry_msgs::Twist tempTwist = calcTwistFromPose(tempPose,dur);
+        transform_twists.push_back(tempTwist);
     }
 
     return calcTwistWithCov(transform_twists);
 }
 
-
-geometry_msgs::Twist CalibrateAction::getTwistFromTransforms(tf::StampedTransform trans1, tf::StampedTransform trans2)
+geometry_msgs::Twist CalibrateAction::calcTwistFromPose(geometry_msgs::Pose _pose, ros::Duration _dur)
 {
     geometry_msgs::Twist result_twist;
-    result_twist.linear = trans2.getOrigin() - trans1.getOrigin();
-    result_twist.angular.z = tf::getYaw(trans2.getRotation() - trans1.getRotation());
+
     result_twist.angular.x = 0;
     result_twist.angular.y = 0;
+    result_twist.angular.z = (tf::getYaw(_pose.orientation)) / _dur.toSec();
+    double distance = sqrt((_pose.position.y)*(_pose.position.y)+(_pose.position.x)*(_pose.position.x));
+    result_twist.linear.x = distance / _dur.toSec();
+    result_twist.linear.y = 0;
+    result_twist.linear.z = 0;
 
     return result_twist;
+}
+
+geometry_msgs::Pose CalibrateAction::convertTransformInPose(tf::Transform trans)
+{
+    geometry_msgs::Pose tempPose;
+    tempPose.position.x = trans.getOrigin().getX();
+    tempPose.position.y = trans.getOrigin().getY();
+    tempPose.position.z = trans.getOrigin().getZ();
+    tempPose.orientation.w = trans.getRotation().getW();
+    tempPose.orientation.x = trans.getRotation().getX();
+    tempPose.orientation.y = trans.getRotation().getY();
+    tempPose.orientation.z = trans.getRotation().getZ();
+
+    return tempPose;
 }
 

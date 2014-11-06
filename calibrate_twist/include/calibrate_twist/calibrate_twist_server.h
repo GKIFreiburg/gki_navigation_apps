@@ -43,7 +43,8 @@ protected:
   geometry_msgs::TwistWithCovariance calcTwistWithCov(std::vector<nav_msgs::Odometry::ConstPtr> odos_ptr);
 
   geometry_msgs::TwistWithCovariance estimateTwWithCovFromTrajectory(std::vector<tf::StampedTransform> transforms);
-  geometry_msgs::Twist getTwistFromTransforms(tf::StampedTransform trans1, tf::StampedTransform trans2);
+  geometry_msgs::Twist calcTwistFromPose(geometry_msgs::Pose _pose, ros::Duration _dur);
+  geometry_msgs::Pose convertTransformInPose(tf::Transform trans);
 
 public:
 
