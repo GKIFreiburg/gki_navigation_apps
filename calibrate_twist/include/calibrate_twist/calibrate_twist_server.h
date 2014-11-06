@@ -36,11 +36,11 @@ protected:
 
   tf::TransformListener* listener;
 
-  //bool cache_flag;
-
-  void calcTwistWithCov(std::vector<geometry_msgs::Twist> twists, geometry_msgs::TwistWithCovariance* resultTwist);
-  void calcTwistWithCov(std::vector<geometry_msgs::TwistWithCovariance> twists, geometry_msgs::TwistWithCovariance* resultTwist);
-  //void odo_cacheCB(const nav_msgs::Odometry::ConstPtr &msg);
+  //geometry_msgs::TwistWithCovariance CalibrateAction::calcTwistWithCov(std::vector<geometry_msgs::Twist> twists);
+  geometry_msgs::TwistWithCovariance calcTwistWithCov(std::vector<geometry_msgs::Twist> twists);
+  geometry_msgs::TwistWithCovariance calcTwistWithCov(std::vector<geometry_msgs::TwistWithCovariance> twistsWC );
+  geometry_msgs::TwistWithCovariance calcTwistWithCov(std::vector<nav_msgs::Odometry> odos);
+  geometry_msgs::TwistWithCovariance calcTwistWithCov(std::vector<nav_msgs::Odometry::ConstPtr> odos_ptr);
 
 public:
 
@@ -63,6 +63,8 @@ double stability_xThreshold; // defines the maximal covariance on x lin-axis whi
 double stability_zThreshold; // defines the maximal covariance on z rot-axis which is tolerated as stable
 double calibration_calc_interval; // value in seconds how long one calculated interval of the calibration should be
 std::string tfFixedFrame; // defines the fixed frame for the transform lookup call
+std::string robotFrame; // defines the robot frame for the transform lookup call
+double minStabilityDuration;
 
 #endif
 

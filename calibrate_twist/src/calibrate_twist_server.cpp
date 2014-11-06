@@ -15,25 +15,8 @@ using namespace Eigen;
     as_(nh_, name, boost::bind(&CalibrateAction::executeCB, this, _1), false),
     action_name_(name)
   {
-    //bool cache_flag = false;
     as_.start();
   }
-
-  /*
-  void CalibrateAction::odo_cacheCB(const nav_msgs::Odometry::ConstPtr &msg)
-  {
-
-      if(cache_flag == false)
-      {
-          ROS_INFO("X");
-          cache_flag = true;
-      }
-      else
-      {
-          ROS_INFO("Y");
-      }
-  }
-*/
 
   CalibrateAction::~CalibrateAction(void)
   {
@@ -43,7 +26,8 @@ using namespace Eigen;
   {
     bool success = true;
     bool stability_reached = false;
-    int stability_counter = 0;
+    bool first_stability = false;
+    ros::Time first_stability_time;
 
     // read all necessary parameters
     ros::NodeHandle nhPriv("~");
@@ -54,6 +38,8 @@ using namespace Eigen;
     nhPriv.getParamCached("stability_zThreshold", stability_zThreshold);
     nhPriv.getParamCached("calibration_calc_interval", calibration_calc_interval);
     nhPriv.getParamCached("tfFixedFrame", tfFixedFrame);
+    nhPriv.getParamCached("robotFrame", robotFrame);
+    nhPriv.getParamCached("minStabilityDuration", minStabilityDuration);
 
 
     listener = new tf::TransformListener((goal->duration)*2); // set cache time twice the time of the calibr. run
@@ -109,39 +95,40 @@ using namespace Eigen;
             continuity_start = continuity_start - ros::Duration(stability_intervalDuration); // take the correct interval into account
             ros::Time continuity_end = odo_cache.getLatestTime();
             std::vector<nav_msgs::Odometry::ConstPtr> consistenty_odo_interval = odo_cache.getInterval(continuity_start,continuity_end);
-            std::vector<geometry_msgs::TwistWithCovariance> twist_interval;
-            // extract the twists out of the odo values
-            for(unsigned int i=0; i<consistenty_odo_interval.size(); i++)
-            {
-                twist_interval.push_back(consistenty_odo_interval[i]->twist);
-            }
 
-            geometry_msgs::TwistWithCovariance result_twist;
             // calc the covariance out of the interval
-            calcTwistWithCov(twist_interval,&result_twist);
+            geometry_msgs::TwistWithCovariance result_twist = calcTwistWithCov(consistenty_odo_interval);
+
             ROS_INFO("%lu values: constance check: %4.3f on x-axis, %4.3f on z-rot", consistenty_odo_interval.size(), result_twist.covariance[0],result_twist.covariance[35]);
 
             //only if both values are lower than the threshold for 3x in a row we assume stability is reached
             if((result_twist.covariance[0] < stability_xThreshold) && (result_twist.covariance[35] < stability_zThreshold))
             {
-                stability_counter++;
-                if (stability_counter > 2) // make this a parameter?
+                if(!first_stability)
+                {
+                    first_stability = true;
+                    first_stability_time = ros::Time::now();
+                }
+                else if (ros::Time::now()>(first_stability_time + ros::Duration(minStabilityDuration)))
                 {
                     stability_reached = true;
-                    ROS_INFO("Stability reached after %f seconds", ros::Time::now().toSec()-stability_timeout_start.toSec() );
+                    ROS_INFO("Stability reached after %.2f seconds", ros::Time::now().toSec()-stability_timeout_start.toSec() );
                     break;
                 }
             }
             else
             {
-                // reset counter so we only count three reached criteria in a row
-                stability_counter = 0;
+                if(first_stability)
+                {
+                    // clear stability criteria so the duration timer gets reset
+                    first_stability = false;
+                    ROS_INFO("Stability timer reset!");
+                }
             }
-            ROS_INFO("start time: %.2f , stability_cnt: %i",continuity_start.toSec(), stability_counter);
         }
         else
         {
-            ROS_INFO("Dooohhh! Invalid Start time: %f !", continuity_start.toSec());
+            ROS_INFO("Doohh! Invalid Start time: %.2f !", continuity_start.toSec());
         }
 
         r.sleep();
@@ -189,53 +176,44 @@ using namespace Eigen;
 //**************************************************
     // create the transform that we fill, using tf
     std::vector<tf::StampedTransform> movement_transforms;
-    unsigned int interval_steps = goal->duration.toSec() / calibration_calc_interval;
-    for(unsigned int i = 1; i<=(interval_steps);i++)
+
+    // wait for 300ms to allow the tf buffer to be filled with enough values
+    ros::Duration d = ros::Duration(0.3);
+    d.sleep();
+
+    for(ros::Time cTime = calibration_start; cTime < calibration_end; cTime += ros::Duration(calibration_calc_interval) )
     {
         tf::StampedTransform tempTransform;
 
-        std::vector<nav_msgs::Odometry::ConstPtr> calibration_odo_interval = odo_cache.getInterval(calibration_start,calibration_start+ros::Duration(i*calibration_calc_interval));
-        /*
-        calibration_odo_interval.front()->header.frame_id;
-        calibration_odo_interval.front()->header.stamp;
-        calibration_odo_interval.back()->header.frame_id;
-        calibration_odo_interval.back)->header.stamp;
-        */
-        // make the tf lookup to get the transformation from one scan to the other
-        if(!calibration_odo_interval.empty())
-        {
-            try{
-              listener->waitForTransform(calibration_odo_interval.front()->header.frame_id, calibration_odo_interval.front()->header.stamp,
-                                        calibration_odo_interval.back()->header.frame_id, calibration_odo_interval.back()->header.stamp,
-                                        tfFixedFrame, ros::Duration(1.0));
+        // make the tf lookup to get the transformation from robot frame to the fixed frame
+        try{
+            listener->lookupTransform(robotFrame, tfFixedFrame,
+                                        cTime, tempTransform);
 
-
-              // uses the two scans and /odom as fixed frame to get a transformation
-              // transform naming: from_to (e.g. transformOld_New means from Old to New)
-
-              // calculates the transform from source (scanOld) to target (scanNew)
-              listener->lookupTransform(calibration_odo_interval.front()->header.frame_id, calibration_odo_interval.front()->header.stamp,
-                                        calibration_odo_interval.back()->header.frame_id, calibration_odo_interval.back()->header.stamp,
-                                        tfFixedFrame, tempTransform);
-              // store calculated transform
-              movement_transforms.push_back(tempTransform); // what happens if exception is thrown? not guaranteed that all transforms can be retrieved
-            }
-            catch (tf::TransformException ex){
-              ROS_ERROR("%s",ex.what());
-            }
+          // store calculated transform
+          movement_transforms.push_back(tempTransform); // what happens if exception is thrown? not guaranteed that all transforms can be retrieved
         }
-        else
-        {
-            ROS_INFO("No Odo Data received from calibration run ");
+        catch (tf::TransformException ex){
+          ROS_ERROR("%s",ex.what());
         }
     }
 
-
+    unsigned int interval_steps = goal->duration.toSec() / calibration_calc_interval;
+    if((movement_transforms.size()+5)<interval_steps)
+    {
+        ROS_INFO("Only %lu transformations from %u steps", movement_transforms.size(), interval_steps);
+        ROS_INFO("given time: %.1f, actual time: %.1f, actual steps: %.1f", (goal->duration).toSec(),ros::Duration(calibration_end - calibration_start).toSec(), ros::Duration(calibration_end - calibration_start).toSec() / calibration_calc_interval);
+    }
+    else
+    {
+        ROS_INFO("Result contains %lu transformations from %u steps", movement_transforms.size(), interval_steps);
+        ROS_INFO("given time: %.1f, actual time: %.1f, actual steps: %.1f", (goal->duration).toSec(),ros::Duration(calibration_end - calibration_start).toSec(), ros::Duration(calibration_end - calibration_start).toSec() / calibration_calc_interval);
+    }
 
     geometry_msgs::TwistWithCovariance tw;
     std::vector<geometry_msgs::Twist> twists_vector;
     twists_vector.push_back(goal->twist_goal);
-    CalibrateAction::calcTwistWithCov(twists_vector, &tw);
+    tw = calcTwistWithCov(twists_vector);
 
     if(success)
     {
@@ -261,42 +239,9 @@ int main(int argc, char** argv)
   return 0;
 }
 
-void CalibrateAction::calcTwistWithCov(std::vector<geometry_msgs::Twist> twists, geometry_msgs::TwistWithCovariance* resultTwist)
+geometry_msgs::TwistWithCovariance CalibrateAction::calcTwistWithCov(std::vector<geometry_msgs::Twist> twists)
 {
-    /*
-    double angular = 0;
-    double linear = 0;
-    foreach(geometry_msgs::Twist tw, twists)
-    {
-        // check if twists are positiv?
-        angular += tw.angular.z;
-        linear  += tw.linear.x;
-    }
-    angular = angular / twists.size();
-    linear  = linear  / twists.size();
-
-    geometry_msgs::TwistWithCovariance a;
-*/
-
-/*
-    int n = twists.size();
-    MatrixXd mat(n,2);
-    // creating value matrix here
-    for (int i = 0; i<n; i++)
-    {
-        mat(i,0) = twists[i]->angular.z;
-        mat(i,1) = twists[i]->linear.x;
-    }
-    MatrixXd centered = mat.rowwise() - mat.colwise().mean();
-    *cov = (centered.adjoint() * centered) / double(mat.rows());
-    Vector2d meanVector = mat.colwise().mean();
-
-
-    resultTwist.twist.angular.z = double(meanVector(0));
-    resultTwist.twist.linear.x = double(meanVector(1));
-
-    resultTwist.covariance = ;
-*/
+    geometry_msgs::TwistWithCovariance resultTwist;
     int n = twists.size();
     MatrixXd mat(n,6);
     // creating value matrix here
@@ -314,52 +259,57 @@ void CalibrateAction::calcTwistWithCov(std::vector<geometry_msgs::Twist> twists,
     covMat = (centered.adjoint() * centered) / double(mat.rows());
     VectorXd meanVector(6);
     meanVector = mat.colwise().mean();
-    resultTwist->twist.linear.x = double(meanVector(0));
-    resultTwist->twist.angular.z = double(meanVector(5));
+    // only need linear.x and angular.z but other values could be useful in the future
+    resultTwist.twist.linear.x = double(meanVector(0));
+    resultTwist.twist.linear.y = double(meanVector(1));
+    resultTwist.twist.linear.z = double(meanVector(2));
+    resultTwist.twist.angular.x = double(meanVector(3));
+    resultTwist.twist.angular.y = double(meanVector(4));
+    resultTwist.twist.angular.z = double(meanVector(5));
 
-    double *resultC = &(resultTwist->covariance[0]);
+    double *resultC = &(resultTwist.covariance[0]);
 
-    //Map<MatrixXd>( resultC, covMat.rows(), covMat.cols() ) = covMat;
+    // arrange resultMatrix as RowMajor as required by TwistWithCovariance type
     Map<Matrix<double,6,6,RowMajor> >(resultC, 6,6) = covMat;
 
     // print for test only
-    std::cout << "CovMat:\n" << covMat <<"\n";
+    //std::cout << "CovMat:\n" << covMat <<"\n";
+
+    return resultTwist;
 }
 
-void CalibrateAction::calcTwistWithCov(std::vector<geometry_msgs::TwistWithCovariance> twists, geometry_msgs::TwistWithCovariance* resultTwist)
+geometry_msgs::TwistWithCovariance CalibrateAction::calcTwistWithCov(std::vector<geometry_msgs::TwistWithCovariance> twistsWC)
 {
-    int n = twists.size();
-    MatrixXd mat(n,6);
-    // creating value matrix here
-    for (int i = 0; i<n; i++)
+    std::vector<geometry_msgs::Twist> temp_twists;
+    for(unsigned int i=0; i<twistsWC.size(); i++)
     {
-        mat(i,0) = twists[i].twist.linear.x;
-        mat(i,1) = twists[i].twist.linear.y;
-        mat(i,2) = twists[i].twist.linear.z;
-        mat(i,3) = twists[i].twist.angular.x;
-        mat(i,4) = twists[i].twist.angular.y;
-        mat(i,5) = twists[i].twist.angular.z;
+        temp_twists.push_back(twistsWC[i].twist);
     }
-    MatrixXd centered = mat.rowwise() - mat.colwise().mean();
-    MatrixXd covMat = MatrixXd::Ones(6,6);
-    covMat = (centered.adjoint() * centered) / double(mat.rows());
-    VectorXd meanVector(6);
-    meanVector = mat.colwise().mean();
-    resultTwist->twist.linear.x = double(meanVector(0));
-    resultTwist->twist.angular.z = double(meanVector(5));
 
-    double *resultC = &(resultTwist->covariance[0]);
-
-    //Map<MatrixXd>( resultC, covMat.rows(), covMat.cols() ) = covMat;
-
-    // arrange resultMatrix as RowMajor as required by TwistWithCovariance type
-    Map<Matrix<double,6,6,RowMajor> >(resultC, 6,6) = covMat; // unclear if it works as it's supposed to
-
-    // print for test only
-    std::cout << "CovMat:\n" << covMat <<"\n";
-    //std::cout << "CovMat:\n" << Map<Matrix<double,6,6,RowMajor> >(resultC, 6,6) <<"\n"; // test only
+    return calcTwistWithCov(temp_twists);
 }
 
+geometry_msgs::TwistWithCovariance CalibrateAction::calcTwistWithCov(std::vector<nav_msgs::Odometry> odos)
+{
+    std::vector<geometry_msgs::TwistWithCovariance> temp_twistsWC;
+    for(unsigned int i=0; i<odos.size(); i++)
+    {
+        temp_twistsWC.push_back(odos[i].twist);
+    }
+
+    return calcTwistWithCov(temp_twistsWC);
+}
+
+geometry_msgs::TwistWithCovariance CalibrateAction::calcTwistWithCov(std::vector<nav_msgs::Odometry::ConstPtr> odos_ptr)
+{
+    std::vector<geometry_msgs::TwistWithCovariance> temp_twistsWC;
+    for(unsigned int i=0; i<odos_ptr.size(); i++)
+    {
+        temp_twistsWC.push_back(odos_ptr[i]->twist);
+    }
+
+    return calcTwistWithCov(temp_twistsWC);
+}
 
 
 
