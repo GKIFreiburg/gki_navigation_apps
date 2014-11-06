@@ -174,7 +174,10 @@ using namespace Eigen;
 //**************************************************
     // calculating the result
 //**************************************************
-    // create the transform that we fill, using tf
+    // retrieving values from odo cache
+    std::vector<nav_msgs::Odometry::ConstPtr> calibration_odo_interval = odo_cache.getInterval(calibration_start,calibration_end);
+
+    // create the transform vector that we fill, using tf
     std::vector<tf::StampedTransform> movement_transforms;
 
     // wait for 300ms to allow the tf buffer to be filled with enough values
@@ -189,7 +192,6 @@ using namespace Eigen;
         try{
             listener->lookupTransform(robotFrame, tfFixedFrame,
                                         cTime, tempTransform);
-
           // store calculated transform
           movement_transforms.push_back(tempTransform); // what happens if exception is thrown? not guaranteed that all transforms can be retrieved
         }
@@ -198,27 +200,32 @@ using namespace Eigen;
         }
     }
 
+    // for information if the transform lookup didn't succeed (at least 5 lookups unsuccessful)
     unsigned int interval_steps = goal->duration.toSec() / calibration_calc_interval;
     if((movement_transforms.size()+5)<interval_steps)
     {
         ROS_INFO("Only %lu transformations from %u steps", movement_transforms.size(), interval_steps);
-        ROS_INFO("given time: %.1f, actual time: %.1f, actual steps: %.1f", (goal->duration).toSec(),ros::Duration(calibration_end - calibration_start).toSec(), ros::Duration(calibration_end - calibration_start).toSec() / calibration_calc_interval);
+        ROS_INFO("given time: %2.1f, actual time: %2.1f, actual steps: %2.1f", (goal->duration).toSec(),ros::Duration(calibration_end - calibration_start).toSec(), ros::Duration(calibration_end - calibration_start).toSec() / calibration_calc_interval);
     }
     else
     {
-        ROS_INFO("Result contains %lu transformations from %u steps", movement_transforms.size(), interval_steps);
-        ROS_INFO("given time: %.1f, actual time: %.1f, actual steps: %.1f", (goal->duration).toSec(),ros::Duration(calibration_end - calibration_start).toSec(), ros::Duration(calibration_end - calibration_start).toSec() / calibration_calc_interval);
+        //ROS_INFO("Result contains %lu transformations from %u steps", movement_transforms.size(), interval_steps);
+        //ROS_INFO("given time: %2.1f, actual time: %2.1f, actual steps: %2.1f", (goal->duration).toSec(),ros::Duration(calibration_end - calibration_start).toSec(), ros::Duration(calibration_end - calibration_start).toSec() / calibration_calc_interval);
     }
 
-    geometry_msgs::TwistWithCovariance tw;
-    std::vector<geometry_msgs::Twist> twists_vector;
-    twists_vector.push_back(goal->twist_goal);
-    tw = calcTwistWithCov(twists_vector);
+    // calculating odo based result
+    geometry_msgs::TwistWithCovariance twistFromOdometry = calcTwistWithCov(calibration_odo_interval);
+
+
+
+//**************************************************
+    // publishing the result
+//**************************************************
 
     if(success)
     {
-      result_.calibrated_result = tw;
-      result_.odo_result = tw;
+      //result_.calibrated_result = tw;
+      result_.odo_result = twistFromOdometry;
       ROS_INFO("%s: Succeeded", action_name_.c_str());
       // set the action state to succeeded
       as_.setSucceeded(result_);
@@ -310,6 +317,3 @@ geometry_msgs::TwistWithCovariance CalibrateAction::calcTwistWithCov(std::vector
 
     return calcTwistWithCov(temp_twistsWC);
 }
-
-
-
