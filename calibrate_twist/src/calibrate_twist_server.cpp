@@ -192,7 +192,7 @@ using namespace Eigen;
 
         // make the tf lookup to get the transformation from robot frame to the fixed frame
         try{
-            listener->lookupTransform(robotFrame, tfFixedFrame,
+            listener->lookupTransform(tfFixedFrame, robotFrame,
                                         cTime, tempTransform);
           // store calculated transform
           movement_transforms.push_back(tempTransform); // what happens if exception is thrown? not guaranteed that all transforms can be retrieved
@@ -323,62 +323,32 @@ geometry_msgs::TwistWithCovariance CalibrateAction::calcTwistWithCov(std::vector
     return calcTwistWithCov(temp_twistsWC);
 }
 
+// estimates a overall mean twist for given vector of stamped transforms
 geometry_msgs::TwistWithCovariance CalibrateAction::estimateTwWithCovFromTrajectory(std::vector<tf::StampedTransform> transforms)
 {
     std::vector<geometry_msgs::Twist> transform_twists;
     for(unsigned int i=0; i<transforms.size()-transforms_interval_size; i++)
     {
         ros::Duration dur = transforms[i+transforms_interval_size].stamp_ - transforms[i].stamp_;
-        //geometry_msgs::Pose tempPose = convertTransformInPose(transforms[i+transforms_interval_size].inverseTimes(transforms[i]));
-        tf::Pose tempPose = (transforms[i+transforms_interval_size].inverseTimes(transforms[i]));
-        geometry_msgs::Twist tempTwist = calcTwistFromPose(tempPose,dur);
+        geometry_msgs::Twist tempTwist = calcTwistFromTransform((transforms[i].inverseTimes(transforms[i+transforms_interval_size])),dur);
         transform_twists.push_back(tempTwist);
     }
-
     return calcTwistWithCov(transform_twists);
 }
 
-geometry_msgs::Twist CalibrateAction::calcTwistFromPose(geometry_msgs::Pose _pose, ros::Duration _dur)
+// calculates the linear and roatation speed out of given transform and duration
+geometry_msgs::Twist CalibrateAction::calcTwistFromTransform(tf::Transform _transform, ros::Duration _dur)
 {
     geometry_msgs::Twist result_twist;
 
-    result_twist.angular.x = 0;
-    result_twist.angular.y = 0;
-    result_twist.angular.z = (tf::getYaw(_pose.orientation)) / _dur.toSec();
-    double distance = sqrt((_pose.position.y)*(_pose.position.y)+(_pose.position.x)*(_pose.position.x));
-    result_twist.linear.x = distance / _dur.toSec();
+    result_twist.linear.x = _transform.getOrigin().length() / _dur.toSec();
     result_twist.linear.y = 0;
     result_twist.linear.z = 0;
 
-    return result_twist;
-}
-
-geometry_msgs::Twist CalibrateAction::calcTwistFromPose(tf::Pose _pose, ros::Duration _dur)
-{
-    geometry_msgs::Twist result_twist;
-
     result_twist.angular.x = 0;
     result_twist.angular.y = 0;
-    result_twist.angular.z = (tf::getYaw(_pose.getRotation())) / _dur.toSec();
-    double distance = sqrt((_pose.getOrigin().getY())*(_pose.getOrigin().getY())+(_pose.getOrigin().getX())*(_pose.getOrigin().getX()));
-    result_twist.linear.x = distance / _dur.toSec();
-    result_twist.linear.y = 0;
-    result_twist.linear.z = 0;
+    result_twist.angular.z = (tf::getYaw(_transform.getRotation())) / _dur.toSec();
 
     return result_twist;
-}
-
-geometry_msgs::Pose CalibrateAction::convertTransformInPose(tf::Transform trans)
-{
-    geometry_msgs::Pose tempPose;
-    tempPose.position.x = trans.getOrigin().getX();
-    tempPose.position.y = trans.getOrigin().getY();
-    tempPose.position.z = trans.getOrigin().getZ();
-    tempPose.orientation.w = trans.getRotation().getW();
-    tempPose.orientation.x = trans.getRotation().getX();
-    tempPose.orientation.y = trans.getRotation().getY();
-    tempPose.orientation.z = trans.getRotation().getZ();
-
-    return tempPose;
 }
 
