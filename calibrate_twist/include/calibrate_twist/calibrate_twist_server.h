@@ -30,10 +30,15 @@ protected:
   // create messages that are used to published feedback/result
   calibrate_twist::CalibrateFeedback feedback_;
   calibrate_twist::CalibrateResult result_;
+  calibrate_twist::CalibrateGoal goal_;
 
   ros::Time calibration_start;
   ros::Time calibration_end;
+  geometry_msgs::Twist zero_twist;
 
+  bool success;
+
+  message_filters::Cache<nav_msgs::Odometry>* odo_cache;
   tf::TransformListener* listener;
 
   //geometry_msgs::TwistWithCovariance CalibrateAction::calcTwistWithCov(std::vector<geometry_msgs::Twist> twists);
@@ -44,6 +49,11 @@ protected:
 
   geometry_msgs::TwistWithCovariance estimateTwWithCovFromTrajectory(std::vector<tf::StampedTransform> transforms);
   geometry_msgs::Twist calcTwistFromTransform(tf::Transform _transform, ros::Duration _dur);
+
+  bool bringupGoalSpeed();
+  bool checkOdoConsistency(bool &first_stability, ros::Time &first_stability_time);
+  void startCalibrationRun();
+  void calculateResult();
 
 public:
 
@@ -58,6 +68,8 @@ public:
 
 
 //------------ Parameter Variables--------------
+
+// How to deal with parameters in class structure? private? public?
 
 double odo_cache_depths; // how many values of the odometry are gonna be stored
 double stability_timeout; // maximum time in seconds until a stability in speed has to be reached

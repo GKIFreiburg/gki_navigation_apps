@@ -24,10 +24,7 @@ using namespace Eigen;
 
   void CalibrateAction::executeCB(const calibrate_twist::CalibrateGoalConstPtr &goal)
   {
-    bool success = true;
-    bool stability_reached = false;
-    bool first_stability = false;
-    ros::Time first_stability_time;
+    success = true;
 
     // read all necessary parameters
     ros::NodeHandle nhPriv("~");
@@ -42,20 +39,17 @@ using namespace Eigen;
     nhPriv.getParamCached("minStabilityDuration", minStabilityDuration);
     nhPriv.getParamCached("transforms_interval_size", transforms_interval_size);
 
+    goal_ = *goal;
 
 
-    listener = new tf::TransformListener((goal->duration)*2); // set cache time twice the time of the calibr. run
+    listener = new tf::TransformListener((goal_.duration)*2); // set cache time twice the time of the calibr. run
 
-    //ros::Subscriber sub = nh_.subscribe("/odom", odo_cache_depths, someCallback);
     message_filters::Subscriber<nav_msgs::Odometry> sub(nh_, "/odom", 1);
-    message_filters::Cache<nav_msgs::Odometry> odo_cache(sub, odo_cache_depths);
-    //odo_cache.registerCallback(boost::bind(&CalibrateAction::odo_cacheCB, this, _1));
-
+    odo_cache = new message_filters::Cache<nav_msgs::Odometry> (sub, odo_cache_depths);
 
     twist_pub = nh_.advertise<geometry_msgs::Twist>("cmd_vel", 1);
     ros::Rate r(10);
 
-    geometry_msgs::Twist zero_twist; // how to initialize as zero?
     zero_twist.angular.x = 0; // necessary?
     zero_twist.angular.y = 0; // necessary?
     zero_twist.angular.z = 0; // necessary?
@@ -64,11 +58,70 @@ using namespace Eigen;
     zero_twist.linear.z = 0; // necessary
 
     // publish info to the console for the user
-    ROS_INFO("%s: Executing, running calibration run for %f seconds with linear speed %f, angular speed %f", action_name_.c_str(), goal->duration.toSec(), goal->twist_goal.linear.x, goal->twist_goal.angular.z);
+    ROS_INFO("%s: Executing, running calibration run for %f seconds with linear speed %f, angular speed %f", action_name_.c_str(), goal_.duration.toSec(), goal_.twist_goal.linear.x, goal_.twist_goal.angular.z);
 
 //**************************************************
     // bringing the robot to the goal speed
 //**************************************************
+    bool stability_reached = false;
+    stability_reached = bringupGoalSpeed();
+
+    // not stopping robot here because we want to have continuous movement!
+
+    if(!stability_reached)
+    {
+        twist_pub.publish(zero_twist); // safety first, stop robot
+        as_.setAborted();
+        ROS_INFO("%s: Aborted. No stability reached within timeout", action_name_.c_str());
+        success = false;
+    }
+    else if(success)
+    {
+//**************************************************
+    // starting calibration run for given duration
+//**************************************************
+
+        startCalibrationRun();
+
+    }
+    // end of movement, therefore robo is stopped
+    twist_pub.publish(zero_twist); // safety first, stop robot
+
+//**************************************************
+    // calculating and publishing the result
+//**************************************************
+
+    if(success)
+    {
+        calculateResult();
+    }
+
+    // callback finished
+  }
+
+
+int main(int argc, char** argv)
+{
+  ros::init(argc, argv, "calibrate");
+
+  CalibrateAction calibrate(ros::this_node::getName());
+
+  ROS_INFO("Calibration Server started");
+
+  ros::spin();
+
+  return 0;
+}
+
+
+bool CalibrateAction::bringupGoalSpeed()
+{
+    ros::Rate r(10);
+    bool stability_reached = false;
+    bool first_stability = false;
+    ros::Time first_stability_time;
+
+
     ros::Time stability_timeout_start = ros::Time::now();
     while((ros::Time::now().toSec()) < (stability_timeout_start.toSec() + stability_timeout))
     {
@@ -83,101 +136,101 @@ using namespace Eigen;
           break;
         }
         // driving the robot with the intended parameters
-        twist_pub.publish(goal->twist_goal);
+        twist_pub.publish(goal_.twist_goal);
 
 //**************************************************
     // checking continuity of achieved velocity
 //**************************************************
 
-        // get a odometry interval out of the cache and check for continuity of the contained twists
-        ros::Time continuity_start = odo_cache.getLatestTime(); // results in weird absolute time once cache is filled?!
-        // result of getLatestTime is zero in the beginning and crashes if we calculate with the substracted interval duration
-        if(!continuity_start.isZero()) // maybe assure here that at least x values are in cache already
+       stability_reached = checkOdoConsistency(first_stability, first_stability_time);
+       if(stability_reached)
+       {
+           ROS_INFO("Stability reached after %.2f seconds", ros::Time::now().toSec()-stability_timeout_start.toSec() );
+           break;
+       }
+       r.sleep(); // ensure 10Hz for cmd_vel
+    }
+    return stability_reached;
+}
+
+bool CalibrateAction::checkOdoConsistency(bool &first_stability, ros::Time &first_stability_time)
+{
+    bool stability_reached = false;
+
+    // get a odometry interval out of the cache and check for continuity of the contained twists
+    ros::Time continuity_start = odo_cache->getLatestTime(); // results in weird absolute time once cache is filled?!
+    // result of getLatestTime is zero in the beginning and crashes if we calculate with the substracted interval duration
+    if(!continuity_start.isZero()) // maybe assure here that at least x values are in cache already
+    {
+        continuity_start = continuity_start - ros::Duration(stability_intervalDuration); // take the correct interval into account
+        ros::Time continuity_end = odo_cache->getLatestTime();
+        std::vector<nav_msgs::Odometry::ConstPtr> consistency_odo_interval = odo_cache->getInterval(continuity_start,continuity_end);
+
+        // calc the covariance out of the interval
+        geometry_msgs::TwistWithCovariance result_twist = calcTwistWithCov(consistency_odo_interval);
+
+        ROS_INFO("%lu values: constance check: %4.3f on x-axis, %4.3f on z-rot", consistency_odo_interval.size(), result_twist.covariance[0],result_twist.covariance[35]);
+
+        //only if both values are lower than the threshold for 3x in a row we assume stability is reached
+        if((result_twist.covariance[0] < stability_xThreshold) && (result_twist.covariance[35] < stability_zThreshold))
         {
-            continuity_start = continuity_start - ros::Duration(stability_intervalDuration); // take the correct interval into account
-            ros::Time continuity_end = odo_cache.getLatestTime();
-            std::vector<nav_msgs::Odometry::ConstPtr> consistenty_odo_interval = odo_cache.getInterval(continuity_start,continuity_end);
-
-            // calc the covariance out of the interval
-            geometry_msgs::TwistWithCovariance result_twist = calcTwistWithCov(consistenty_odo_interval);
-
-            ROS_INFO("%lu values: constance check: %4.3f on x-axis, %4.3f on z-rot", consistenty_odo_interval.size(), result_twist.covariance[0],result_twist.covariance[35]);
-
-            //only if both values are lower than the threshold for 3x in a row we assume stability is reached
-            if((result_twist.covariance[0] < stability_xThreshold) && (result_twist.covariance[35] < stability_zThreshold))
+            if(!first_stability)
             {
-                if(!first_stability)
-                {
-                    first_stability = true;
-                    first_stability_time = ros::Time::now();
-                }
-                else if (ros::Time::now()>(first_stability_time + ros::Duration(minStabilityDuration)))
-                {
-                    stability_reached = true;
-                    ROS_INFO("Stability reached after %.2f seconds", ros::Time::now().toSec()-stability_timeout_start.toSec() );
-                    break;
-                }
+                first_stability = true;
+                first_stability_time = ros::Time::now();
             }
-            else
+            else if (ros::Time::now()>(first_stability_time + ros::Duration(minStabilityDuration)))
             {
-                if(first_stability)
-                {
-                    // clear stability criteria so the duration timer gets reset
-                    first_stability = false;
-                    ROS_INFO("Stability timer reset!");
-                }
+                stability_reached = true;
             }
         }
         else
         {
-            ROS_INFO("Doohh! Invalid Start time: %.2f !", continuity_start.toSec());
+            if(first_stability)
+            {
+                // clear stability criteria so the duration timer gets reset
+                first_stability = false;
+                ROS_INFO("Stability timer reset!");
+            }
         }
-
-        r.sleep();
-    }
-
-
-    if(!stability_reached)
-    {
-        twist_pub.publish(zero_twist); // safety first, stop robot
-        as_.setAborted();
-        ROS_INFO("%s: Aborted. No stability reached within timeout", action_name_.c_str());
-        success = false;
     }
     else
     {
-//**************************************************
-    // starting calibration run for given duration
-//**************************************************
+        ROS_INFO("Doohh! Invalid Start time: %.2f !", continuity_start.toSec());
+    }
+    return stability_reached;
+}
 
-        calibration_start = ros::Time::now();
-        // starting calibration run
-        while((ros::Time::now().toSec()) < (calibration_start.toSec() + goal->duration.toSec()))
+void CalibrateAction::startCalibrationRun()
+{
+    ros::Rate r(10);
+    calibration_start = ros::Time::now();
+    // starting calibration run
+    while((ros::Time::now().toSec()) < (calibration_start.toSec() + goal_.duration.toSec()))
+    {
+        // check that preempt has not been requested by the client
+        if (as_.isPreemptRequested() || !ros::ok())
         {
-            // check that preempt has not been requested by the client
-            if (as_.isPreemptRequested() || !ros::ok())
-            {
-              twist_pub.publish(zero_twist); // safety first, stop robot
-              ROS_INFO("%s: Preempted", action_name_.c_str());
-              // set the action state to preempted
-              as_.setPreempted();
-              success = false;
-              break;
-            }
-            // driving the robot with the intended parameters
-            twist_pub.publish(goal->twist_goal);
-            r.sleep();
+          twist_pub.publish(zero_twist); // safety first, stop robot
+          ROS_INFO("%s: Preempted", action_name_.c_str());
+          // set the action state to preempted
+          as_.setPreempted();
+          success = false;
+          break;
         }
-        calibration_end = ros::Time::now();
-    }     
-    // end of movement, therefore robo is stopped
-    twist_pub.publish(zero_twist); // safety first, stop robot
+        // driving the robot with the intended parameters
+        twist_pub.publish(goal_.twist_goal);
+        r.sleep(); // ensure 10Hz for cmd_vel
+    }
+    calibration_end = ros::Time::now();
+}
 
-//**************************************************
-    // calculating the result
-//**************************************************
+void CalibrateAction::calculateResult()
+{
+    //marker_pub = nh_.advertise<geometry_msgs::Pose[]>("_trajectory", 10);
+
     // retrieving values from odo cache
-    std::vector<nav_msgs::Odometry::ConstPtr> calibration_odo_interval = odo_cache.getInterval(calibration_start,calibration_end);
+    std::vector<nav_msgs::Odometry::ConstPtr> calibration_odo_interval = odo_cache->getInterval(calibration_start,calibration_end);
 
     // create the transform vector that we fill, using tf
     std::vector<tf::StampedTransform> movement_transforms;
@@ -203,16 +256,16 @@ using namespace Eigen;
     }
 
     // for information if the transform lookup didn't succeed (at least 5 lookups unsuccessful)
-    unsigned int interval_steps = goal->duration.toSec() / calibration_calc_interval;
+    unsigned int interval_steps = goal_.duration.toSec() / calibration_calc_interval;
     if((movement_transforms.size()+5)<interval_steps)
     {
         ROS_INFO("Only %lu transformations from %u steps", movement_transforms.size(), interval_steps);
-        ROS_INFO("given time: %2.1f, actual time: %2.1f, actual steps: %2.1f", (goal->duration).toSec(),ros::Duration(calibration_end - calibration_start).toSec(), ros::Duration(calibration_end - calibration_start).toSec() / calibration_calc_interval);
+        ROS_INFO("given time: %2.1f, actual time: %2.1f, actual steps: %2.1f", (goal_.duration).toSec(),ros::Duration(calibration_end - calibration_start).toSec(), ros::Duration(calibration_end - calibration_start).toSec() / calibration_calc_interval);
     }
     else
     {
         //ROS_INFO("Result contains %lu transformations from %u steps", movement_transforms.size(), interval_steps);
-        //ROS_INFO("given time: %2.1f, actual time: %2.1f, actual steps: %2.1f", (goal->duration).toSec(),ros::Duration(calibration_end - calibration_start).toSec(), ros::Duration(calibration_end - calibration_start).toSec() / calibration_calc_interval);
+        //ROS_INFO("given time: %2.1f, actual time: %2.1f, actual steps: %2.1f", (goal_.duration).toSec(),ros::Duration(calibration_end - calibration_start).toSec(), ros::Duration(calibration_end - calibration_start).toSec() / calibration_calc_interval);
     }
 
     // calculating odo based result
@@ -223,9 +276,9 @@ using namespace Eigen;
 
 
 
-//**************************************************
-    // publishing the result
-//**************************************************
+    //**************************************************
+        // publishing the result
+    //**************************************************
 
     if(success)
     {
@@ -235,20 +288,6 @@ using namespace Eigen;
       // set the action state to succeeded
       as_.setSucceeded(result_);
     }
-  }
-
-
-int main(int argc, char** argv)
-{
-  ros::init(argc, argv, "calibrate");
-
-  CalibrateAction calibrate(ros::this_node::getName());
-
-  ROS_INFO("Calibration Server started");
-
-  ros::spin();
-
-  return 0;
 }
 
 geometry_msgs::TwistWithCovariance CalibrateAction::calcTwistWithCov(std::vector<geometry_msgs::Twist> twists)
