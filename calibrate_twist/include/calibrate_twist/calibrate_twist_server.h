@@ -15,6 +15,7 @@
 #include <Eigen/Dense>
 
 #include <tf/transform_listener.h>
+#include <geometry_msgs/PoseArray.h>
 
 using namespace Eigen;
 
@@ -24,6 +25,7 @@ protected:
 
   ros::NodeHandle nh_;
   ros::Publisher twist_pub;    
+  ros::Publisher marker_pub;
   // NodeHandle instance must be created before this line. Otherwise strange error may occur.
   actionlib::SimpleActionServer<calibrate_twist::CalibrateAction> as_;
   std::string action_name_;
@@ -35,6 +37,8 @@ protected:
   ros::Time calibration_start;
   ros::Time calibration_end;
   geometry_msgs::Twist zero_twist;
+  geometry_msgs::TwistWithCovariance twistWCFromOdometry; // temporary result before copied to action result
+  geometry_msgs::TwistWithCovariance twistWCFromTf; // temporary result before copied to action result
 
   bool success;
 

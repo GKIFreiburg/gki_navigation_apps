@@ -41,21 +41,22 @@ using namespace Eigen;
 
     goal_ = *goal;
 
-
     listener = new tf::TransformListener((goal_.duration)*2); // set cache time twice the time of the calibr. run
 
     message_filters::Subscriber<nav_msgs::Odometry> sub(nh_, "/odom", 1);
     odo_cache = new message_filters::Cache<nav_msgs::Odometry> (sub, odo_cache_depths);
 
-    twist_pub = nh_.advertise<geometry_msgs::Twist>("cmd_vel", 1);
-    ros::Rate r(10);
+    marker_pub = nh_.advertise<geometry_msgs::PoseArray>("trajectory_", 10);
 
-    zero_twist.angular.x = 0; // necessary?
-    zero_twist.angular.y = 0; // necessary?
-    zero_twist.angular.z = 0; // necessary?
-    zero_twist.linear.x = 0; // necessary
-    zero_twist.linear.y = 0; // necessary
-    zero_twist.linear.z = 0; // necessary
+    twist_pub = nh_.advertise<geometry_msgs::Twist>("cmd_vel", 1);
+
+    // necessary? how to initialize as empty?
+    zero_twist.angular.x = 0;
+    zero_twist.angular.y = 0;
+    zero_twist.angular.z = 0;
+    zero_twist.linear.x = 0;
+    zero_twist.linear.y = 0;
+    zero_twist.linear.z = 0;
 
     // publish info to the console for the user
     ROS_INFO("%s: Executing, running calibration run for %f seconds with linear speed %f, angular speed %f", action_name_.c_str(), goal_.duration.toSec(), goal_.twist_goal.linear.x, goal_.twist_goal.angular.z);
@@ -75,12 +76,11 @@ using namespace Eigen;
         ROS_INFO("%s: Aborted. No stability reached within timeout", action_name_.c_str());
         success = false;
     }
-    else if(success)
-    {
 //**************************************************
     // starting calibration run for given duration
 //**************************************************
-
+    else if(success)
+    {
         startCalibrationRun();
 
     }
@@ -88,14 +88,23 @@ using namespace Eigen;
     twist_pub.publish(zero_twist); // safety first, stop robot
 
 //**************************************************
-    // calculating and publishing the result
+    // calculating the result
+//**************************************************
+
+    calculateResult();
+
+//**************************************************
+    // publishing the result
 //**************************************************
 
     if(success)
     {
-        calculateResult();
+      result_.calibrated_result = twistWCFromTf;
+      result_.odo_result = twistWCFromOdometry;
+      ROS_INFO("%s: Succeeded", action_name_.c_str());
+      // set the action state to succeeded
+      as_.setSucceeded(result_);
     }
-
     // callback finished
   }
 
@@ -227,8 +236,6 @@ void CalibrateAction::startCalibrationRun()
 
 void CalibrateAction::calculateResult()
 {
-    //marker_pub = nh_.advertise<geometry_msgs::Pose[]>("_trajectory", 10);
-
     // retrieving values from odo cache
     std::vector<nav_msgs::Odometry::ConstPtr> calibration_odo_interval = odo_cache->getInterval(calibration_start,calibration_end);
 
@@ -269,25 +276,22 @@ void CalibrateAction::calculateResult()
     }
 
     // calculating odo based result
-    geometry_msgs::TwistWithCovariance twistFromOdometry = calcTwistWithCov(calibration_odo_interval);
+    twistWCFromOdometry = calcTwistWithCov(calibration_odo_interval);
 
     // calculating tf based result
-    geometry_msgs::TwistWithCovariance twistFromTf = estimateTwWithCovFromTrajectory(movement_transforms);
+    twistWCFromTf = estimateTwWithCovFromTrajectory(movement_transforms);
 
-
-
-    //**************************************************
-        // publishing the result
-    //**************************************************
-
-    if(success)
+    // publishing to tf
+    geometry_msgs::PoseArray poses;
+    for(unsigned int i=0; i<movement_transforms.size();i++)
     {
-      result_.calibrated_result = twistFromTf;
-      result_.odo_result = twistFromOdometry;
-      ROS_INFO("%s: Succeeded", action_name_.c_str());
-      // set the action state to succeeded
-      as_.setSucceeded(result_);
+        geometry_msgs::Pose temp_pose;
+        //tf::transformTFToMsg(movement_transforms[i], temp_pose);
+        tf::poseTFToMsg(movement_transforms[i], temp_pose);
+        poses.poses.push_back(temp_pose);
     }
+    poses.header.frame_id = tfFixedFrame;
+    marker_pub.publish(poses);
 }
 
 geometry_msgs::TwistWithCovariance CalibrateAction::calcTwistWithCov(std::vector<geometry_msgs::Twist> twists)
