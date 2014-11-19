@@ -16,6 +16,7 @@
   <depend package="actionlib_msgs"/>
   <depend package="message_filters"/>
   <depend package="costmap_2d"/>
+  <depend package="dynamicvoronoi"/>
   <rosdep name="eigen"/>
 
 

@@ -15,6 +15,18 @@ using namespace Eigen;
     as_(nh_, name, boost::bind(&CalibrateAction::executeCB, this, _1), false),
     action_name_(name)
   {
+    ros::NodeHandle nhPriv("~");
+
+    // read all necessary parameters
+    nhPriv.getParamCached("voronoi_grid_size", voronoi_grid_size);// size of the overall voronoi grid in meters (robot stands in center of that grid)
+    nhPriv.getParamCached("voronoi_grid_resolution", voronoi_grid_resolution);// defines the edge length in meters of a voronoi grid cell
+
+    // Initialize of Voronoi stuff
+    int size_x = (int) voronoi_grid_size / voronoi_grid_resolution;
+    int size_y = (int) voronoi_grid_size / voronoi_grid_resolution;
+    //voronoi_.changeMaxDist(100); // change the calculation distance of voronoi
+    voronoi_.initializeEmpty(size_x, size_y, true);
+
     as_.start();
   }
 
@@ -43,7 +55,7 @@ using namespace Eigen;
     goal_ = *goal;
 
     listener = new tf::TransformListener((goal_.duration)*2); // set cache time twice the time of the calibr. run
-    costmap_2d::Costmap2DROS costmap(cal_costmap, *listener);
+    cost_map = new costmap_2d::Costmap2DROS(cal_costmap, *listener);
 
     message_filters::Subscriber<nav_msgs::Odometry> sub(nh_, "/odom", 1);
     odo_cache = new message_filters::Cache<nav_msgs::Odometry> (sub, odo_cache_depths);
@@ -51,6 +63,9 @@ using namespace Eigen;
     marker_pub = nh_.advertise<geometry_msgs::PoseArray>("trajectory_", 10);
 
     twist_pub = nh_.advertise<geometry_msgs::Twist>("cmd_vel", 1);
+
+    voronoi_pub = nh_.advertise<visualization_msgs::MarkerArray>("voronoi_marker", 10);
+
 
     // necessary? how to initialize as empty?
     zero_twist.angular.x = 0;
@@ -149,9 +164,12 @@ bool CalibrateAction::bringupGoalSpeed()
         // driving the robot with the intended parameters
         twist_pub.publish(goal_.twist_goal);
 
-//**************************************************
-    // checking continuity of achieved velocity
-//**************************************************
+        voronoi_.exchangeObstacles(cost_map.getPoints());
+        voronoi_.update(true);
+        visualizeVoronoi();
+        //**************************************************
+            // checking continuity of achieved velocity
+        //**************************************************
 
        stability_reached = checkOdoConsistency(first_stability, first_stability_time);
        if(stability_reached)
@@ -231,6 +249,11 @@ void CalibrateAction::startCalibrationRun()
         }
         // driving the robot with the intended parameters
         twist_pub.publish(goal_.twist_goal);
+
+        voronoi_.exchangeObstacles(cost_map.getPoints());
+        voronoi_.update(true);
+        visualizeVoronoi();
+
         r.sleep(); // ensure 10Hz for cmd_vel
     }
     calibration_end = ros::Time::now();
@@ -397,3 +420,70 @@ geometry_msgs::Twist CalibrateAction::calcTwistFromTransform(tf::Transform _tran
     return result_twist;
 }
 
+
+void CalibrateAction::visualizeVoronoi()
+{
+    // nothing to send to no one
+    if(voronoi_pub.getNumSubscribers() == 0)
+        return;
+
+    visualization_msgs::Marker voronoiMarker;
+
+    //initializes the markers
+    voronoiMarker.header.frame_id = robotFrame;
+    voronoiMarker.header.stamp = ros::Time::now();
+    voronoiMarker.type = visualization_msgs::Marker::SPHERE_LIST;
+    voronoiMarker.action = visualization_msgs::Marker::ADD;
+    voronoiMarker.scale.x = voronoi_grid_resolution * sqrt(2.0);
+    voronoiMarker.scale.y = voronoi_grid_resolution * sqrt(2.0);
+    voronoiMarker.scale.z = voronoi_grid_resolution * sqrt(2.0);
+    voronoiMarker.frame_locked = false;
+    voronoiMarker.color.r = 1.0f;
+    voronoiMarker.color.g = 1.0f;
+    voronoiMarker.color.b = 1.0f;
+    voronoiMarker.color.a = 1.0f;
+    voronoiMarker.ns = "voronoi";
+    voronoiMarker.id = 2;
+
+    //initialize the cellpoints
+    geometry_msgs::Point cellPoint;
+    cellPoint.z = - voronoi_grid_resolution * sqrt(2.0)/2.0;
+    std_msgs::ColorRGBA cellColor;
+    cellColor.a = 1.0;
+
+    for(unsigned int x = 0; x < (voronoi_grid_size / voronoi_grid_resolution); x++) {
+        for(unsigned int y = 0; y < (voronoi_grid_size / voronoi_grid_resolution); y++)
+        {
+            float dist = voronoi_.getDistance(x, y);
+            dist *= voronoi_grid_resolution; // now in meters
+            IntPoint gridPoint(x,y);
+            gridtoWorld(&gridPoint, &cellPoint);
+            voronoiMarker.points.push_back(cellPoint);
+
+            if(dist == -INFINITY) {
+                cellColor.r = 1.0;
+                cellColor.g = 0.0;
+                cellColor.b = 1.0;
+                cellColor.a = 1.0;
+            } else if(dist == INFINITY) {
+                cellColor.r = 0.0;
+                cellColor.g = 1.0;
+                cellColor.b = 0.0;
+                cellColor.a = 0.1; // changed alpha for infinity in voronoi
+            }
+            voronoiMarker.colors.push_back(cellColor);
+        }
+    }
+    //sends the markers
+    visualization_msgs::MarkerArray voronoiMarkerArray;
+    voronoiMarkerArray.markers.push_back(voronoiMarker);
+    voronoi_pub.publish(voronoiMarkerArray);
+}
+
+void CalibrateAction::gridtoWorld(IntPoint* ip, geometry_msgs::Point* wp)
+{
+  // TODO: spend some thoughts if rounding is neccessary here or not
+  double half_mapsize = (voronoi_grid_size / 2);
+  wp->x = (float) (ip->x * voronoi_grid_resolution - half_mapsize);
+  wp->y = (float) (ip->y * voronoi_grid_resolution - half_mapsize);
+}

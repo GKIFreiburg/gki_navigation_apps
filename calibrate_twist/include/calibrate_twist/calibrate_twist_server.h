@@ -19,6 +19,11 @@
 
 #include <costmap_2d/costmap_2d_ros.h>
 
+#include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
+#include "dynamicvoronoi/dynamicvoronoi.h"
+
+
 using namespace Eigen;
 
 class CalibrateAction
@@ -46,6 +51,10 @@ protected:
 
   message_filters::Cache<nav_msgs::Odometry>* odo_cache;
   tf::TransformListener* listener;
+  costmap_2d::Costmap2DROS* cost_map;
+
+  ros::Publisher voronoi_pub;
+  DynamicVoronoi voronoi_;
 
   //geometry_msgs::TwistWithCovariance CalibrateAction::calcTwistWithCov(std::vector<geometry_msgs::Twist> twists);
   geometry_msgs::TwistWithCovariance calcTwistWithCov(std::vector<geometry_msgs::Twist> twists);
@@ -60,6 +69,8 @@ protected:
   bool checkOdoConsistency(bool &first_stability, ros::Time &first_stability_time);
   void startCalibrationRun();
   void calculateResult();
+  void visualizeVoronoi();
+  void gridtoWorld(IntPoint* ip, geometry_msgs::Point* wp);
 
 public:
 
@@ -87,6 +98,9 @@ std::string robotFrame; // defines the robot frame for the transform lookup call
 double minStabilityDuration; // time in seconds for how long stability criteria must be met
 int transforms_interval_size;
 std::string cal_costmap; // the name of the local costmap used for avoiding crashes in calibration runs
+
+double voronoi_grid_resolution;
+double voronoi_grid_size;
 
 #endif
 
