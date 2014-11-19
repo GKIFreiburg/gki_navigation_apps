@@ -10,6 +10,7 @@
     <param name="tfFixedFrame" value="/odom" />
     <param name="robotFrame" value="/base_footprint" />
     <param name="transforms_interval_size" value= "4" />
+    <param name="cal_costmap" value= "local_costmap" />
 
   </node>
 </launch>

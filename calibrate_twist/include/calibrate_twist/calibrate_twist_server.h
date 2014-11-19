@@ -17,6 +17,8 @@
 #include <tf/transform_listener.h>
 #include <geometry_msgs/PoseArray.h>
 
+#include <costmap_2d/costmap_2d_ros.h>
+
 using namespace Eigen;
 
 class CalibrateAction
@@ -70,7 +72,6 @@ public:
 
 };
 
-
 //------------ Parameter Variables--------------
 
 // How to deal with parameters in class structure? private? public?
@@ -85,6 +86,7 @@ std::string tfFixedFrame; // defines the fixed frame for the transform lookup ca
 std::string robotFrame; // defines the robot frame for the transform lookup call
 double minStabilityDuration; // time in seconds for how long stability criteria must be met
 int transforms_interval_size;
+std::string cal_costmap; // the name of the local costmap used for avoiding crashes in calibration runs
 
 #endif
 

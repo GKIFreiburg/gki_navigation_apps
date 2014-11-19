@@ -38,10 +38,12 @@ using namespace Eigen;
     nhPriv.getParamCached("robotFrame", robotFrame);
     nhPriv.getParamCached("minStabilityDuration", minStabilityDuration);
     nhPriv.getParamCached("transforms_interval_size", transforms_interval_size);
+    nhPriv.getParamCached("cal_costmap", cal_costmap);
 
     goal_ = *goal;
 
     listener = new tf::TransformListener((goal_.duration)*2); // set cache time twice the time of the calibr. run
+    costmap_2d::Costmap2DROS costmap(cal_costmap, *listener);
 
     message_filters::Subscriber<nav_msgs::Odometry> sub(nh_, "/odom", 1);
     odo_cache = new message_filters::Cache<nav_msgs::Odometry> (sub, odo_cache_depths);
