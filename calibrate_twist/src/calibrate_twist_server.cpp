@@ -59,7 +59,7 @@ using namespace Eigen;
     listener = new tf::TransformListener((goal_.duration)*2); // set cache time twice the time of the calibr. run
     cost_map = new costmap_2d::Costmap2DROS(cal_costmap, *listener);
 
-    ros::Subscriber cm_sub = nh_.subscribe("~/move_base/local_costmap/obstacles", 1, CalibrateAction::costmapCB);
+    //ros::Subscriber cm_sub = nh_.subscribe("~/move_base/local_costmap/obstacles", 1, CalibrateAction::costmapCB);
 
     message_filters::Subscriber<nav_msgs::Odometry> sub(nh_, "/odom", 1);
     odo_cache = new message_filters::Cache<nav_msgs::Odometry> (sub, odo_cache_depths);
@@ -129,11 +129,12 @@ using namespace Eigen;
     // callback finished
   }
 
+/*
   void CalibrateAction::costmapCB(const nav_msgs::GridCells::ConstPtr& msg)
   {
       updateVoronoi(msg);
   }
-
+*/
 
 
 int main(int argc, char** argv)
@@ -148,7 +149,7 @@ int main(int argc, char** argv)
 
   return 0;
 }
-
+/*
 void CalibrateAction::updateVoronoi(const nav_msgs::GridCells::ConstPtr& msg)
 {
     std::vector<IntPoint> newObstacles;
@@ -160,6 +161,61 @@ void CalibrateAction::updateVoronoi(const nav_msgs::GridCells::ConstPtr& msg)
             newObstacles.push_back(temp_point);
         }
     }
+    voronoi_.exchangeObstacles(newObstacles);
+    voronoi_.update(true);
+    visualizeVoronoi();
+}
+*/
+void CalibrateAction::updateVoronoi()
+{
+    costmap_2d::Costmap2D costmap_;
+    geometry_msgs::Point gmPoint;
+    IntPoint tempPoint;
+    std::vector<IntPoint> newObstacles;
+
+    tf::StampedTransform tempTransform;
+
+    // make the tf lookup to get the transformation from robot frame to the fixed frame
+    try{
+        listener->lookupTransform(cost_map->getGlobalFrameID(), robotFrame,
+                                    ros::Time::now(), tempTransform);
+    }
+    catch (tf::TransformException ex){
+      ROS_ERROR("%s",ex.what());
+    }
+
+
+    gmPoint.z=0;
+    cost_map->getCostmapCopy(costmap_);
+    for(unsigned int x = 0; x < costmap_.getSizeInCellsX(); x++)
+    {
+        for(unsigned int y = 0; y < costmap_.getSizeInCellsY(); y++)
+        {
+            if(costmap_.getCost(x, y) >= costmap_2d::LETHAL_OBSTACLE)  // lethal and unknown
+            {
+                gmPoint.x = x;
+                gmPoint.y = y;
+                tf::Point tf_point;
+                // now transform the correct scan (scanOld) into tf points and multiply with the transform
+                pointMsgToTF (gmPoint, tf_point);
+
+                tf::Point tf_point_temp;
+
+                // transform the point from old frame into new frame
+                tf_point_temp = tempTransform * tf_point;
+
+                // transform the result back into regular points of scanOld to display in RViz
+                pointTFToMsg(tf_point_temp, gmPoint);
+
+                if(worldToGrid(&gmPoint, &tempPoint))
+                {
+                    newObstacles.push_back(tempPoint);
+
+                }
+            }
+        }
+    }
+    ROS_INFO("New obstacles found: %d of total %d", newObstacles.size(), costmap_.getSizeInCellsX()*costmap_.getSizeInCellsY());
     voronoi_.exchangeObstacles(newObstacles);
     voronoi_.update(true);
     visualizeVoronoi();
@@ -190,6 +246,7 @@ bool CalibrateAction::bringupGoalSpeed()
         // driving the robot with the intended parameters
         twist_pub.publish(goal_.twist_goal);
 
+        updateVoronoi(); // loads values from costmap and pushes into voronoi
         //**************************************************
             // checking continuity of achieved velocity
         //**************************************************
@@ -273,9 +330,7 @@ void CalibrateAction::startCalibrationRun()
         // driving the robot with the intended parameters
         twist_pub.publish(goal_.twist_goal);
 
-        //voronoi_.exchangeObstacles(cost_map.getPoints());
-        //voronoi_.update(true);
-        //visualizeVoronoi();
+        updateVoronoi(); // loads values from costmap and pushes into voronoi
 
         r.sleep(); // ensure 10Hz for cmd_vel
     }

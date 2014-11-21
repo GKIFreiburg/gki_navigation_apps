@@ -74,7 +74,8 @@ protected:
   void gridtoWorld(IntPoint* ip, geometry_msgs::Point* wp);
   bool worldToGrid(const geometry_msgs::Point* wp, IntPoint* ip);
 
-  void updateVoronoi(const nav_msgs::GridCells::ConstPtr& msg);
+  //void updateVoronoi(const nav_msgs::GridCells::ConstPtr& msg); // function to use with costmapCB
+  void updateVoronoi();
 
 
 public:
@@ -85,7 +86,7 @@ public:
 
   void executeCB(const calibrate_twist::CalibrateGoalConstPtr &goal);
 
-  void costmapCB(const nav_msgs::GridCells::ConstPtr& msg);
+  //void costmapCB(const nav_msgs::GridCells::ConstPtr& msg); // not used as for now unclear why callback isn't able to be registered
 };
 
 //------------ Parameter Variables--------------
