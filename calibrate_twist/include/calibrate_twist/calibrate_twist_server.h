@@ -10,6 +10,7 @@
 #include <message_filters/subscriber.h>
 #include <message_filters/cache.h>
 #include <nav_msgs/Odometry.h>
+#include <nav_msgs/GridCells.h>
 
 #include <Eigen/Eigenvalues>
 #include <Eigen/Dense>
@@ -56,7 +57,6 @@ protected:
   ros::Publisher voronoi_pub;
   DynamicVoronoi voronoi_;
 
-  //geometry_msgs::TwistWithCovariance CalibrateAction::calcTwistWithCov(std::vector<geometry_msgs::Twist> twists);
   geometry_msgs::TwistWithCovariance calcTwistWithCov(std::vector<geometry_msgs::Twist> twists);
   geometry_msgs::TwistWithCovariance calcTwistWithCov(std::vector<geometry_msgs::TwistWithCovariance> twistsWC );
   geometry_msgs::TwistWithCovariance calcTwistWithCov(std::vector<nav_msgs::Odometry> odos);
@@ -69,8 +69,13 @@ protected:
   bool checkOdoConsistency(bool &first_stability, ros::Time &first_stability_time);
   void startCalibrationRun();
   void calculateResult();
+
   void visualizeVoronoi();
   void gridtoWorld(IntPoint* ip, geometry_msgs::Point* wp);
+  bool worldToGrid(const geometry_msgs::Point* wp, IntPoint* ip);
+
+  void updateVoronoi(const nav_msgs::GridCells::ConstPtr& msg);
+
 
 public:
 
@@ -80,7 +85,7 @@ public:
 
   void executeCB(const calibrate_twist::CalibrateGoalConstPtr &goal);
 
-
+  void costmapCB(const nav_msgs::GridCells::ConstPtr& msg);
 };
 
 //------------ Parameter Variables--------------

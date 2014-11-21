@@ -27,6 +27,8 @@ using namespace Eigen;
     //voronoi_.changeMaxDist(100); // change the calculation distance of voronoi
     voronoi_.initializeEmpty(size_x, size_y, true);
 
+
+
     as_.start();
   }
 
@@ -56,6 +58,8 @@ using namespace Eigen;
 
     listener = new tf::TransformListener((goal_.duration)*2); // set cache time twice the time of the calibr. run
     cost_map = new costmap_2d::Costmap2DROS(cal_costmap, *listener);
+
+    ros::Subscriber cm_sub = nh_.subscribe("~/move_base/local_costmap/obstacles", 1, CalibrateAction::costmapCB);
 
     message_filters::Subscriber<nav_msgs::Odometry> sub(nh_, "/odom", 1);
     odo_cache = new message_filters::Cache<nav_msgs::Odometry> (sub, odo_cache_depths);
@@ -125,6 +129,12 @@ using namespace Eigen;
     // callback finished
   }
 
+  void CalibrateAction::costmapCB(const nav_msgs::GridCells::ConstPtr& msg)
+  {
+      updateVoronoi(msg);
+  }
+
+
 
 int main(int argc, char** argv)
 {
@@ -137,6 +147,22 @@ int main(int argc, char** argv)
   ros::spin();
 
   return 0;
+}
+
+void CalibrateAction::updateVoronoi(const nav_msgs::GridCells::ConstPtr& msg)
+{
+    std::vector<IntPoint> newObstacles;
+    for(unsigned int i=0; i++; i<msg->cells.size())
+    {
+        IntPoint temp_point;
+        if(worldToGrid(&(msg->cells[i]), &temp_point))
+        {
+            newObstacles.push_back(temp_point);
+        }
+    }
+    voronoi_.exchangeObstacles(newObstacles);
+    voronoi_.update(true);
+    visualizeVoronoi();
 }
 
 
@@ -164,9 +190,6 @@ bool CalibrateAction::bringupGoalSpeed()
         // driving the robot with the intended parameters
         twist_pub.publish(goal_.twist_goal);
 
-        voronoi_.exchangeObstacles(cost_map.getPoints());
-        voronoi_.update(true);
-        visualizeVoronoi();
         //**************************************************
             // checking continuity of achieved velocity
         //**************************************************
@@ -250,9 +273,9 @@ void CalibrateAction::startCalibrationRun()
         // driving the robot with the intended parameters
         twist_pub.publish(goal_.twist_goal);
 
-        voronoi_.exchangeObstacles(cost_map.getPoints());
-        voronoi_.update(true);
-        visualizeVoronoi();
+        //voronoi_.exchangeObstacles(cost_map.getPoints());
+        //voronoi_.update(true);
+        //visualizeVoronoi();
 
         r.sleep(); // ensure 10Hz for cmd_vel
     }
@@ -486,4 +509,31 @@ void CalibrateAction::gridtoWorld(IntPoint* ip, geometry_msgs::Point* wp)
   double half_mapsize = (voronoi_grid_size / 2);
   wp->x = (float) (ip->x * voronoi_grid_resolution - half_mapsize);
   wp->y = (float) (ip->y * voronoi_grid_resolution - half_mapsize);
+}
+
+bool CalibrateAction::worldToGrid(const geometry_msgs::Point* wp, IntPoint* ip)
+{
+  int temp_x, temp_y;
+  double half_mapsize = (voronoi_grid_size / 2);
+  geometry_msgs::Point point=*wp;
+  // start the coordinates from the middle of the grid
+  point.x+=half_mapsize;
+  point.y+=half_mapsize;
+
+  // use round_int to correctly round to closest integer value
+  temp_x = round(point.x / voronoi_grid_resolution);
+  temp_y = round(point.y / voronoi_grid_resolution);
+
+  // the absolute value of both coordinates may not be larger than half of the grid size
+  if(temp_x<0 || temp_y<0 || temp_x>= (int) voronoi_.getSizeX() || temp_y>= (int) voronoi_.getSizeY())
+  {
+    return false;
+  }
+  // values are in bounds so it's ok to set them
+  else
+  {
+    ip->x = temp_x;
+    ip->y = temp_y;
+    return true;
+  }
 }
