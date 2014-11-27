@@ -11,9 +11,6 @@
     <param name="robotFrame" value="/base_footprint" />
     <param name="transforms_interval_size" value= "4" />
     <param name="cal_costmap" value= "move_base/local_costmap" />
-    <param name="voronoi_grid_size" value="3" />
-    <param name="voronoi_grid_resolution" value="0.05" />
-
 
   </node>
 </launch>

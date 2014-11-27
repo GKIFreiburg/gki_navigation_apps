@@ -15,20 +15,6 @@ using namespace Eigen;
     as_(nh_, name, boost::bind(&CalibrateAction::executeCB, this, _1), false),
     action_name_(name)
   {
-    ros::NodeHandle nhPriv("~");
-
-    // read all necessary parameters
-    nhPriv.getParamCached("voronoi_grid_size", voronoi_grid_size);// size of the overall voronoi grid in meters (robot stands in center of that grid)
-    nhPriv.getParamCached("voronoi_grid_resolution", voronoi_grid_resolution);// defines the edge length in meters of a voronoi grid cell
-
-    // Initialize of Voronoi stuff
-    int size_x = (int) voronoi_grid_size / voronoi_grid_resolution;
-    int size_y = (int) voronoi_grid_size / voronoi_grid_resolution;
-    //voronoi_.changeMaxDist(100); // change the calculation distance of voronoi
-    voronoi_.initializeEmpty(size_x, size_y, true);
-
-
-
     as_.start();
   }
 
@@ -58,6 +44,9 @@ using namespace Eigen;
 
     listener = new tf::TransformListener((goal_.duration)*2); // set cache time twice the time of the calibr. run
     cost_map = new costmap_2d::Costmap2DROS(cal_costmap, *listener);
+
+    voronoi_.initializeEmpty(cost_map->getSizeInCellsX(), cost_map->getSizeInCellsY(), true);
+
 
     //ros::Subscriber cm_sub = nh_.subscribe("~/move_base/local_costmap/obstacles", 1, CalibrateAction::costmapCB);
 
@@ -149,78 +138,6 @@ int main(int argc, char** argv)
 
   return 0;
 }
-/*
-void CalibrateAction::updateVoronoi(const nav_msgs::GridCells::ConstPtr& msg)
-{
-    std::vector<IntPoint> newObstacles;
-    for(unsigned int i=0; i++; i<msg->cells.size())
-    {
-        IntPoint temp_point;
-        if(worldToGrid(&(msg->cells[i]), &temp_point))
-        {
-            newObstacles.push_back(temp_point);
-        }
-    }
-    voronoi_.exchangeObstacles(newObstacles);
-    voronoi_.update(true);
-    visualizeVoronoi();
-}
-*/
-void CalibrateAction::updateVoronoi()
-{
-    costmap_2d::Costmap2D costmap_;
-    geometry_msgs::Point gmPoint;
-    IntPoint tempPoint;
-    std::vector<IntPoint> newObstacles;
-
-    tf::StampedTransform tempTransform;
-
-    // make the tf lookup to get the transformation from robot frame to the fixed frame
-    try{
-        listener->lookupTransform(cost_map->getGlobalFrameID(), robotFrame,
-                                    ros::Time::now(), tempTransform);
-    }
-    catch (tf::TransformException ex){
-      ROS_ERROR("%s",ex.what());
-    }
-
-
-    gmPoint.z=0;
-    cost_map->getCostmapCopy(costmap_);
-    for(unsigned int x = 0; x < costmap_.getSizeInCellsX(); x++)
-    {
-        for(unsigned int y = 0; y < costmap_.getSizeInCellsY(); y++)
-        {
-            if(costmap_.getCost(x, y) >= costmap_2d::LETHAL_OBSTACLE)  // lethal and unknown
-            {
-                gmPoint.x = x;
-                gmPoint.y = y;
-                tf::Point tf_point;
-                // now transform the correct scan (scanOld) into tf points and multiply with the transform
-                pointMsgToTF (gmPoint, tf_point);
-
-                tf::Point tf_point_temp;
-
-                // transform the point from old frame into new frame
-                tf_point_temp = tempTransform * tf_point;
-
-                // transform the result back into regular points of scanOld to display in RViz
-                pointTFToMsg(tf_point_temp, gmPoint);
-
-                if(worldToGrid(&gmPoint, &tempPoint))
-                {
-                    newObstacles.push_back(tempPoint);
-
-                }
-            }
-        }
-    }
-    ROS_INFO("New obstacles found: %d of total %d", newObstacles.size(), costmap_.getSizeInCellsX()*costmap_.getSizeInCellsY());
-    voronoi_.exchangeObstacles(newObstacles);
-    voronoi_.update(true);
-    visualizeVoronoi();
-}
-
 
 bool CalibrateAction::bringupGoalSpeed()
 {
@@ -498,97 +415,214 @@ geometry_msgs::Twist CalibrateAction::calcTwistFromTransform(tf::Transform _tran
     return result_twist;
 }
 
+/*
+void CalibrateAction::updateVoronoi(const nav_msgs::GridCells::ConstPtr& msg)
+{
+    std::vector<IntPoint> newObstacles;
+    for(unsigned int i=0; i++; i<msg->cells.size())
+    {
+        IntPoint temp_point;
+        if(worldToGrid(&(msg->cells[i]), &temp_point))
+        {
+            newObstacles.push_back(temp_point);
+        }
+    }
+    voronoi_.exchangeObstacles(newObstacles);
+    voronoi_.update(true);
+    visualizeVoronoi();
+}
+*/
+
+void CalibrateAction::updateVoronoi()
+{
+    std::vector<IntPoint> obstacles;
+    cost_map->getCostmapCopy(costmap_);
+
+    ROS_ASSERT(costmap_.getSizeInCellsX() == voronoi_.getSizeX());
+    ROS_ASSERT(costmap_.getSizeInCellsY() == voronoi_.getSizeY());
+
+
+    for(unsigned int x = 0; x < costmap_.getSizeInCellsX(); x++) {
+        for(unsigned int y = 0; y < costmap_.getSizeInCellsY(); y++) {
+            if(costmap_.getCost(x, y) >= costmap_2d::LETHAL_OBSTACLE) { // lethal and unknown
+                obstacles.push_back(IntPoint(x, y));
+            }
+        }
+    }
+    voronoi_.exchangeObstacles(obstacles);
+    voronoi_.update(true);
+    visualizeVoronoi();
+}
 
 void CalibrateAction::visualizeVoronoi()
 {
+    double vis_max_dist_ = 1.0; // temporary because no param found
+    ROS_ASSERT(costmap_.getSizeInCellsX() == voronoi_.getSizeX());
+    ROS_ASSERT(costmap_.getSizeInCellsY() == voronoi_.getSizeY());
+
     // nothing to send to no one
     if(voronoi_pub.getNumSubscribers() == 0)
         return;
 
+    visualization_msgs::MarkerArray channelMarkers;
     visualization_msgs::Marker voronoiMarker;
-
-    //initializes the markers
-    voronoiMarker.header.frame_id = robotFrame;
-    voronoiMarker.header.stamp = ros::Time::now();
+    voronoiMarker.header.frame_id = cost_map->getGlobalFrameID();
+    voronoiMarker.header.stamp = ros::Time(0);
+    voronoiMarker.ns = "voronoi";
+    voronoiMarker.id = 0;
     voronoiMarker.type = visualization_msgs::Marker::SPHERE_LIST;
     voronoiMarker.action = visualization_msgs::Marker::ADD;
-    voronoiMarker.scale.x = voronoi_grid_resolution * sqrt(2.0);
-    voronoiMarker.scale.y = voronoi_grid_resolution * sqrt(2.0);
-    voronoiMarker.scale.z = voronoi_grid_resolution * sqrt(2.0);
+    voronoiMarker.pose.orientation.w = 1.0;
+    voronoiMarker.scale.x = costmap_.getResolution() * sqrt(2.0);
+    voronoiMarker.scale.y = costmap_.getResolution() * sqrt(2.0);
+    voronoiMarker.scale.z = costmap_.getResolution() * sqrt(2.0);
     voronoiMarker.frame_locked = false;
-    voronoiMarker.color.r = 1.0f;
-    voronoiMarker.color.g = 1.0f;
-    voronoiMarker.color.b = 1.0f;
-    voronoiMarker.color.a = 1.0f;
-    voronoiMarker.ns = "voronoi";
-    voronoiMarker.id = 2;
-
-    //initialize the cellpoints
     geometry_msgs::Point cellPoint;
-    cellPoint.z = - voronoi_grid_resolution * sqrt(2.0)/2.0;
+    cellPoint.z = - costmap_.getResolution() * sqrt(2.0)/2.0;
     std_msgs::ColorRGBA cellColor;
     cellColor.a = 1.0;
-
-    for(unsigned int x = 0; x < (voronoi_grid_size / voronoi_grid_resolution); x++) {
-        for(unsigned int y = 0; y < (voronoi_grid_size / voronoi_grid_resolution); y++)
-        {
+    for(unsigned int x = 0; x < costmap_.getSizeInCellsX(); x++) {
+        for(unsigned int y = 0; y < costmap_.getSizeInCellsY(); y++) {
             float dist = voronoi_.getDistance(x, y);
-            dist *= voronoi_grid_resolution; // now in meters
-            IntPoint gridPoint(x,y);
-            gridtoWorld(&gridPoint, &cellPoint);
+            dist *= costmap_.getResolution();   // now in meters
+            costmap_.mapToWorld(x, y, cellPoint.x, cellPoint.y);
             voronoiMarker.points.push_back(cellPoint);
 
             if(dist == -INFINITY) {
                 cellColor.r = 1.0;
                 cellColor.g = 0.0;
                 cellColor.b = 1.0;
-                cellColor.a = 1.0;
             } else if(dist == INFINITY) {
                 cellColor.r = 0.0;
                 cellColor.g = 1.0;
                 cellColor.b = 0.0;
-                cellColor.a = 0.1; // changed alpha for infinity in voronoi
+            } else {
+                if(dist > vis_max_dist_) {
+                    cellColor.r = cellColor.g = cellColor.b = 1.0;
+                } else {
+                    // make those slightly darker then max dist to distinguish
+                    // vis max dist regions
+                    cellColor.r = cellColor.g = cellColor.b = 0.9 * dist / vis_max_dist_;
+                }
             }
+
             voronoiMarker.colors.push_back(cellColor);
         }
     }
-    //sends the markers
-    visualization_msgs::MarkerArray voronoiMarkerArray;
-    voronoiMarkerArray.markers.push_back(voronoiMarker);
-    voronoi_pub.publish(voronoiMarkerArray);
+    channelMarkers.markers.push_back(voronoiMarker);
+    voronoi_pub.publish(channelMarkers);
 }
 
-void CalibrateAction::gridtoWorld(IntPoint* ip, geometry_msgs::Point* wp)
-{
-  // TODO: spend some thoughts if rounding is neccessary here or not
-  double half_mapsize = (voronoi_grid_size / 2);
-  wp->x = (float) (ip->x * voronoi_grid_resolution - half_mapsize);
-  wp->y = (float) (ip->y * voronoi_grid_resolution - half_mapsize);
+
+/*********************************************************************
+*
+* Software License Agreement (BSD License)
+*
+* Copyright (c) 2008, Willow Garage, Inc.
+* All rights reserved.
+*
+* Redistribution and use in source and binary forms, with or without
+* modification, are permitted provided that the following conditions
+* are met:
+*
+* * Redistributions of source code must retain the above copyright
+* notice, this list of conditions and the following disclaimer.
+* * Redistributions in binary form must reproduce the above
+* copyright notice, this list of conditions and the following
+* disclaimer in the documentation and/or other materials provided
+* with the distribution.
+* * Neither the name of the Willow Garage nor the names of its
+* contributors may be used to endorse or promote products derived
+* from this software without specific prior written permission.
+*
+* THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+* "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+* LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+* FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+* COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+* INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+* BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+* CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+* LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+* ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+* POSSIBILITY OF SUCH DAMAGE.
+*
+* Author: Eitan Marder-Eppstein
+*********************************************************************/
+
+/**
+* create and score a trajectory given the current pose of the robot and selected velocities
+*/
+void TrajectoryPlanner::generateTrajectory(
+    double x, double y, double theta,
+    double vx, double vy, double vtheta, double  sim_time_, Trajectory& traj) {
+
+    double x_i = x;
+    double y_i = y;
+    double theta_i = theta;
+    double vx_i, vy_i, vtheta_i;
+    vx_i = vx;
+    vy_i = vy;
+    vtheta_i = vtheta;
+
+    //compute the number of steps we must take along this trajectory to be "safe"
+    int num_steps = int(sim_time_ / sim_granularity_ + 0.5);
+
+    //we at least want to take one step... even if we won't move, we want to score our current position
+    if(num_steps == 0) {
+        num_steps = 1;
+    }
+    double dt = sim_time_ / num_steps;
+
+    //create a potential trajectory
+    traj.resetPoints();
+    traj.xv_ = vx_i;
+    traj.yv_ = vy_i;
+    traj.thetav_ = vtheta_i;
+
+    for(int i = 0; i < num_steps; ++i){
+        //the point is legal... add it to the trajectory
+        traj.addPoint(x_i, y_i, theta_i);
+
+        //calculate positions
+        x_i = computeNewXPosition(x_i, vx_i, vy_i, theta_i, dt);
+        y_i = computeNewYPosition(y_i, vx_i, vy_i, theta_i, dt);
+        theta_i = computeNewThetaPosition(theta_i, vtheta_i, dt);
+    } // end for i < numsteps
 }
 
-bool CalibrateAction::worldToGrid(const geometry_msgs::Point* wp, IntPoint* ip)
-{
-  int temp_x, temp_y;
-  double half_mapsize = (voronoi_grid_size / 2);
-  geometry_msgs::Point point=*wp;
-  // start the coordinates from the middle of the grid
-  point.x+=half_mapsize;
-  point.y+=half_mapsize;
-
-  // use round_int to correctly round to closest integer value
-  temp_x = round(point.x / voronoi_grid_resolution);
-  temp_y = round(point.y / voronoi_grid_resolution);
-
-  // the absolute value of both coordinates may not be larger than half of the grid size
-  if(temp_x<0 || temp_y<0 || temp_x>= (int) voronoi_.getSizeX() || temp_y>= (int) voronoi_.getSizeY())
-  {
-    return false;
-  }
-  // values are in bounds so it's ok to set them
-  else
-  {
-    ip->x = temp_x;
-    ip->y = temp_y;
-    return true;
-  }
+ /**
+* @brief Compute x position based on velocity
+* @param xi The current x position
+* @param vx The current x velocity
+* @param vy The current y velocity
+* @param theta The current orientation
+* @param dt The timestep to take
+* @return The new x position
+*/
+inline double computeNewXPosition(double xi, double vx, double vy, double theta, double dt){
+return xi + (vx * cos(theta) + vy * cos(M_PI_2 + theta)) * dt;
+}
+/**
+* @brief Compute y position based on velocity
+* @param yi The current y position
+* @param vx The current x velocity
+* @param vy The current y velocity
+* @param theta The current orientation
+* @param dt The timestep to take
+* @return The new y position
+*/
+inline double computeNewYPosition(double yi, double vx, double vy, double theta, double dt){
+return yi + (vx * sin(theta) + vy * sin(M_PI_2 + theta)) * dt;
+}
+/**
+* @brief Compute orientation based on velocity
+* @param thetai The current orientation
+* @param vth The current theta velocity
+* @param dt The timestep to take
+* @return The new orientation
+*/
+inline double computeNewThetaPosition(double thetai, double vth, double dt){
+return thetai + vth * dt;
 }

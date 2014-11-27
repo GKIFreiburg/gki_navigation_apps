@@ -54,6 +54,8 @@ protected:
   tf::TransformListener* listener;
   costmap_2d::Costmap2DROS* cost_map;
 
+  costmap_2d::Costmap2D costmap_; // element for voronoi updating
+
   ros::Publisher voronoi_pub;
   DynamicVoronoi voronoi_;
 
@@ -71,8 +73,6 @@ protected:
   void calculateResult();
 
   void visualizeVoronoi();
-  void gridtoWorld(IntPoint* ip, geometry_msgs::Point* wp);
-  bool worldToGrid(const geometry_msgs::Point* wp, IntPoint* ip);
 
   //void updateVoronoi(const nav_msgs::GridCells::ConstPtr& msg); // function to use with costmapCB
   void updateVoronoi();
