@@ -24,6 +24,8 @@
 #include <visualization_msgs/MarkerArray.h>
 #include "dynamicvoronoi/dynamicvoronoi.h"
 
+#include "trajectory.h"
+
 
 using namespace Eigen;
 
@@ -77,6 +79,84 @@ protected:
   //void updateVoronoi(const nav_msgs::GridCells::ConstPtr& msg); // function to use with costmapCB
   void updateVoronoi();
 
+  bool checkTrajectory(Trajectory& traj);
+
+  /*********************************************************************
+  *
+  * Software License Agreement (BSD License)
+  *
+  * Copyright (c) 2008, Willow Garage, Inc.
+  * All rights reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without
+  * modification, are permitted provided that the following conditions
+  * are met:
+  *
+  * * Redistributions of source code must retain the above copyright
+  * notice, this list of conditions and the following disclaimer.
+  * * Redistributions in binary form must reproduce the above
+  * copyright notice, this list of conditions and the following
+  * disclaimer in the documentation and/or other materials provided
+  * with the distribution.
+  * * Neither the name of the Willow Garage nor the names of its
+  * contributors may be used to endorse or promote products derived
+  * from this software without specific prior written permission.
+  *
+  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+  * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+  * COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+  * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+  * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+  * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+  * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+  * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+  * POSSIBILITY OF SUCH DAMAGE.
+  *
+  * Author: Eitan Marder-Eppstein
+  *********************************************************************/
+
+  void generateTrajectory(
+      double x, double y, double theta,
+      double vx, double vy, double vtheta, double sim_time_, Trajectory &traj);
+
+  /**
+ * @brief Compute x position based on velocity
+ * @param xi The current x position
+ * @param vx The current x velocity
+ * @param vy The current y velocity
+ * @param theta The current orientation
+ * @param dt The timestep to take
+ * @return The new x position
+ */
+ inline double computeNewXPosition(double xi, double vx, double vy, double theta, double dt){
+ return xi + (vx * cos(theta) + vy * cos(M_PI_2 + theta)) * dt;
+ }
+ /**
+ * @brief Compute y position based on velocity
+ * @param yi The current y position
+ * @param vx The current x velocity
+ * @param vy The current y velocity
+ * @param theta The current orientation
+ * @param dt The timestep to take
+ * @return The new y position
+ */
+ inline double computeNewYPosition(double yi, double vx, double vy, double theta, double dt){
+ return yi + (vx * sin(theta) + vy * sin(M_PI_2 + theta)) * dt;
+ }
+ /**
+ * @brief Compute orientation based on velocity
+ * @param thetai The current orientation
+ * @param vth The current theta velocity
+ * @param dt The timestep to take
+ * @return The new orientation
+ */
+ inline double computeNewThetaPosition(double thetai, double vth, double dt){
+ return thetai + vth * dt;
+ }
+
 
 public:
 
@@ -105,8 +185,8 @@ double minStabilityDuration; // time in seconds for how long stability criteria 
 int transforms_interval_size;
 std::string cal_costmap; // the name of the local costmap used for avoiding crashes in calibration runs
 
-double voronoi_grid_resolution;
-double voronoi_grid_size;
+double traj_sim_granularity_; // the distance between trajectory simulation points // "The granularity with which to check for collisions along each trajectory in meters"
+double traj_dist_threshold; // threshold in meters how close the robot may get to an obstacle
 
 #endif
 

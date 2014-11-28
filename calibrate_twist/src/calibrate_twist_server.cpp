@@ -39,6 +39,8 @@ using namespace Eigen;
     nhPriv.getParamCached("minStabilityDuration", minStabilityDuration);
     nhPriv.getParamCached("transforms_interval_size", transforms_interval_size);
     nhPriv.getParamCached("cal_costmap", cal_costmap);
+    nhPriv.getParamCached("traj_sim_granularity_", traj_sim_granularity_);
+    nhPriv.getParamCached("traj_dist_threshold", traj_dist_threshold);
 
     goal_ = *goal;
 
@@ -91,8 +93,23 @@ using namespace Eigen;
 //**************************************************
     else if(success)
     {
-        startCalibrationRun();
+        Trajectory traj;
+        tf::StampedTransform transform;
+        try
+        {
+            listener->lookupTransform("/map",robotFrame,ros::Time::now(), transform);
+        }
+         catch (tf::TransformException ex)
+         {
+             ROS_ERROR("Nope! %s", ex.what());
+         }
 
+        generateTrajectory(transform.getOrigin().x(), transform.getOrigin().y(), tf::getYaw(transform.getRotation()),
+                           goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, goal_.duration, traj);
+        if(checkTrajectory(traj))
+        {
+            startCalibrationRun();
+        }
     }
     // end of movement, therefore robo is stopped
     twist_pub.publish(zero_twist); // safety first, stop robot
@@ -514,6 +531,25 @@ void CalibrateAction::visualizeVoronoi()
 }
 
 
+bool CalibrateAction::checkTrajectory(Trajectory& traj)
+{
+    unsigned int size = traj.getPointsSize();
+    for (unsigned int i = 0; i++; i< size)
+    {
+        geometry_msgs::Pose testPose;
+        traj.getPoint(i,testPose.position.x, testPose.position.y, testPose.orientation.z);
+        float dist = voronoi_.getDistance(testPose.position.x, testPose.position.y); // get closest distance from trajectory point to an obstacle
+        dist *= costmap_.getResolution(); // distance now in meters
+        if (dist< traj_dist_threshold)
+        {
+            ROS_INFO("Critical distance was %f at point %i", dist, i);
+            return false;
+        }
+    }
+    ROS_INFO("Trajectory check successful");
+    return true;
+}
+
 /*********************************************************************
 *
 * Software License Agreement (BSD License)
@@ -554,7 +590,7 @@ void CalibrateAction::visualizeVoronoi()
 /**
 * create and score a trajectory given the current pose of the robot and selected velocities
 */
-void TrajectoryPlanner::generateTrajectory(
+void CalibrateAction::generateTrajectory(
     double x, double y, double theta,
     double vx, double vy, double vtheta, double  sim_time_, Trajectory& traj) {
 
@@ -567,7 +603,7 @@ void TrajectoryPlanner::generateTrajectory(
     vtheta_i = vtheta;
 
     //compute the number of steps we must take along this trajectory to be "safe"
-    int num_steps = int(sim_time_ / sim_granularity_ + 0.5);
+    int num_steps = int(sim_time_ / traj_sim_granularity_ + 0.5);
 
     //we at least want to take one step... even if we won't move, we want to score our current position
     if(num_steps == 0) {
@@ -575,7 +611,7 @@ void TrajectoryPlanner::generateTrajectory(
     }
     double dt = sim_time_ / num_steps;
 
-    //create a potential trajectory
+    //create a potential trajectory    
     traj.resetPoints();
     traj.xv_ = vx_i;
     traj.yv_ = vy_i;
@@ -590,39 +626,4 @@ void TrajectoryPlanner::generateTrajectory(
         y_i = computeNewYPosition(y_i, vx_i, vy_i, theta_i, dt);
         theta_i = computeNewThetaPosition(theta_i, vtheta_i, dt);
     } // end for i < numsteps
-}
-
- /**
-* @brief Compute x position based on velocity
-* @param xi The current x position
-* @param vx The current x velocity
-* @param vy The current y velocity
-* @param theta The current orientation
-* @param dt The timestep to take
-* @return The new x position
-*/
-inline double computeNewXPosition(double xi, double vx, double vy, double theta, double dt){
-return xi + (vx * cos(theta) + vy * cos(M_PI_2 + theta)) * dt;
-}
-/**
-* @brief Compute y position based on velocity
-* @param yi The current y position
-* @param vx The current x velocity
-* @param vy The current y velocity
-* @param theta The current orientation
-* @param dt The timestep to take
-* @return The new y position
-*/
-inline double computeNewYPosition(double yi, double vx, double vy, double theta, double dt){
-return yi + (vx * sin(theta) + vy * sin(M_PI_2 + theta)) * dt;
-}
-/**
-* @brief Compute orientation based on velocity
-* @param thetai The current orientation
-* @param vth The current theta velocity
-* @param dt The timestep to take
-* @return The new orientation
-*/
-inline double computeNewThetaPosition(double thetai, double vth, double dt){
-return thetai + vth * dt;
 }

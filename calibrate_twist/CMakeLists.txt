@@ -37,4 +37,5 @@ rosbuild_genmsg()
 #target_link_libraries(example ${PROJECT_NAME})
 
 rosbuild_add_executable(calibrate_twist src/calibrate_twist_server.cpp)
+rosbuild_add_executable(calibrate_twist src/trajectory.cpp)
 
