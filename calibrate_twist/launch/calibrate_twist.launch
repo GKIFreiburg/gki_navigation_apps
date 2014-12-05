@@ -10,13 +10,14 @@
     <param name="tfFixedFrame" value="/odom" />
     <param name="robotFrame" value="/base_footprint" />
     <param name="transforms_interval_size" value= "4" />
-    <param name="cal_costmap" value= "move_base/local_costmap" />
+    <param name="cal_costmap" value= "local_costmap" />
     <param name="traj_sim_granularity_" value= "0.025" />
     <param name="traj_dist_threshold" value= "0.5" />
     <param name="accel_max_x" value= "0.25" />
     <param name="accel_max_y" value= "0.25" />
     <param name="accel_max_theta" value= "0.4" />
 
-
+    <rosparam file="$(find gki_sickrd_executive)/config/costmap_common_params.yaml" command="load" ns="local_costmap" />
+    <rosparam file="$(find gki_sickrd_executive)/config/local_costmap_params.yaml" command="load" />
   </node>
 </launch>
