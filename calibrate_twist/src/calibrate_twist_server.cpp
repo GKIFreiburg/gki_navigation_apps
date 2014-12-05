@@ -287,7 +287,7 @@ void CalibrateAction::startCalibrationRun()
 
         updateVoronoi(); // loads values from costmap and pushes into voronoi
 
-        double timeLeft = std::min((goal_.duration-(ros::Time::now()-calibration_start)).toSec(), 1.0);
+        double timeLeft = std::max((goal_.duration-(ros::Time::now()-calibration_start)).toSec(), 1.0);
         // ensure we don't hit anything calibration
         if(checkPath(goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, timeLeft,
                   goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, 0, 0, 0))
@@ -702,6 +702,7 @@ bool CalibrateAction::checkPath(double vx, double vy, double vtheta, double vx_s
 
     double sim_time_ = std::max(sim_time_x,sim_time_y);
             sim_time_ = std::max(sim_time_,sim_time_theta);
+            sim_time_ = std::max(sim_time_, 1.0);
 
     ROS_INFO("gen. Traj with pos x: %f, y: %f, th: %f, vel: x: %f, y:%f, th: %f, dur: %f", transform.getOrigin().getX(), transform.getOrigin().getY(), tf::getYaw(transform.getRotation()), vx, vy, vtheta, sim_time_);
 
