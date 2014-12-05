@@ -199,6 +199,19 @@ bool CalibrateAction::bringupGoalSpeed()
            ROS_INFO("Stability reached after %.2f seconds", ros::Time::now().toSec()-stability_timeout_start.toSec() );
            break;
        }
+       else
+       {
+           // ensure we don't hit anything during speedup
+           if(!checkPath((ros::Time::now().toSec()-stability_timeout_start.toSec())*accel_max_x,
+                         (ros::Time::now().toSec()-stability_timeout_start.toSec())*accel_max_y,
+                         (ros::Time::now().toSec()-stability_timeout_start.toSec())*accel_max_theta,
+                         goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, accel_max_x, accel_max_y, accel_max_theta))
+           {
+               twist_pub.publish(zero_twist); // safety first, stop robot
+               ROS_INFO("No space to reach stability");
+               break;
+           }
+       }
        r.sleep(); // ensure 10Hz for cmd_vel
     }
     return stability_reached;
@@ -273,6 +286,16 @@ void CalibrateAction::startCalibrationRun()
         twist_pub.publish(goal_.twist_goal);
 
         updateVoronoi(); // loads values from costmap and pushes into voronoi
+
+        double timeLeft = std::min((goal_.duration-(ros::Time::now()-calibration_start)).toSec(), 1);
+        // ensure we don't hit anything calibration
+        if(checkPath(goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, timeLeft,
+                  goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, 0, 0, 0))
+        {
+            twist_pub.publish(zero_twist); // safety first, stop robot
+            ROS_INFO("No space to reach stability");
+            break;
+        }
 
         r.sleep(); // ensure 10Hz for cmd_vel
     }
