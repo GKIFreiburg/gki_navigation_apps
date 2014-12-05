@@ -543,19 +543,24 @@ void CalibrateAction::visualizeVoronoi()
 bool CalibrateAction::checkTrajectory(Trajectory& traj)
 {
     unsigned int size = traj.getPointsSize();
+   float smallest_dist = INFINITY;
     for(unsigned int i = 0; i< size;i++)
     {
         geometry_msgs::Pose testPose;
         traj.getPoint(i,testPose.position.x, testPose.position.y, testPose.orientation.z);
         float dist = voronoi_.getDistance(testPose.position.x, testPose.position.y); // get closest distance from trajectory point to an obstacle
         dist *= costmap_.getResolution(); // distance now in meters
-        if (fabs(dist) < traj_dist_threshold)
+        if (dist < smallest_dist)
+        {
+            smallest_dist = dist;
+        }
+        if ((dist < traj_dist_threshold) && (dist != -INFINITY) && (dist != INFINITY)) // prevent negative infinity value from crashing us
         {
             ROS_INFO("Critical distance was %f at point %i", dist, i);
             return false;
         }
     }
-    ROS_INFO("Trajectory check successful");
+    ROS_INFO("Trajectory check successful, smallest distance was: %f", smallest_dist);
     return true;
 }
 
@@ -586,7 +591,7 @@ void CalibrateAction::visualize_trajectory(Trajectory &traj)
     temp_pose2.position.y = y_;
     ROS_INFO("Visualize trajectory with %i points\nFirst Point: x: %f y: %f\nLast Point: x: %f y: %f"
              , traj.getPointsSize(),temp_pose.position.x,temp_pose.position.y,temp_pose2.position.x,temp_pose2.position.y);
-    poses.header.frame_id = tfFixedFrame;
+    poses.header.frame_id = cost_map->getGlobalFrameID();;
     estTraj_pub.publish(poses);
 }
 
@@ -598,7 +603,7 @@ bool CalibrateAction::checkPath(double vx, double vy, double vtheta, double  sim
     tf::StampedTransform transform;
     try
     {
-        listener->lookupTransform("/map",robotFrame,ros::Time::now(), transform);
+        listener->lookupTransform(cost_map->getGlobalFrameID(),robotFrame,ros::Time::now(), transform);
     }
      catch (tf::TransformException ex)
      {
@@ -624,7 +629,7 @@ bool CalibrateAction::checkPath(double vx, double vy, double vtheta, double vx_s
     tf::StampedTransform transform;
     try
     {
-        listener->lookupTransform("/map",robotFrame,ros::Time::now(), transform);
+        listener->lookupTransform(cost_map->getGlobalFrameID(),robotFrame,ros::Time::now(), transform);
     }
      catch (tf::TransformException ex)
      {
@@ -633,10 +638,10 @@ bool CalibrateAction::checkPath(double vx, double vy, double vtheta, double vx_s
 
 
 
-    // getting maximum needed sim_time_
-    double sim_time_x = (vx_samp - vx)/acc_x;
-    double sim_time_y = (vy_samp - vy)/acc_y;
-    double sim_time_theta = (vtheta_samp - vtheta)/acc_theta;
+    // getting maximum needed sim_time_, absolute value, as time can't be negative
+    double sim_time_x = fabs((vx_samp - vx)/acc_x);
+    double sim_time_y = fabs((vy_samp - vy)/acc_y);
+    double sim_time_theta = fabs((vtheta_samp - vtheta)/acc_theta);
 
     double sim_time_ = std::max(sim_time_x,sim_time_y);
             sim_time_ = std::max(sim_time_,sim_time_theta);
