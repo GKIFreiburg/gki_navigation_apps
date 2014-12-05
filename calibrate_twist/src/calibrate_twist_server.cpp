@@ -287,13 +287,13 @@ void CalibrateAction::startCalibrationRun()
 
         updateVoronoi(); // loads values from costmap and pushes into voronoi
 
-        double timeLeft = std::min((goal_.duration-(ros::Time::now()-calibration_start)).toSec(), 1);
+        double timeLeft = std::min((goal_.duration-(ros::Time::now()-calibration_start)).toSec(), 1.0);
         // ensure we don't hit anything calibration
         if(checkPath(goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, timeLeft,
                   goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, 0, 0, 0))
         {
             twist_pub.publish(zero_twist); // safety first, stop robot
-            ROS_INFO("No space to reach stability");
+            ROS_INFO("No space to complete calibration");
             break;
         }
 
