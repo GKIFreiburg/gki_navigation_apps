@@ -26,6 +26,8 @@
 
 #include "trajectory.h"
 
+#include <angles/angles.h>
+
 
 using namespace Eigen;
 
@@ -68,7 +70,7 @@ protected:
   geometry_msgs::TwistWithCovariance calcTwistWithCov(std::vector<nav_msgs::Odometry::ConstPtr> odos_ptr);
 
   geometry_msgs::TwistWithCovariance estimateTwWithCovFromTrajectory(std::vector<tf::StampedTransform> transforms);
-  geometry_msgs::Twist calcTwistFromTransform(tf::Transform _transform, ros::Duration _dur);
+  geometry_msgs::Twist calcTwistFromTransform(tf::Transform _transform, ros::Duration _dur, bool reverse_);
 
   bool bringupGoalSpeed();
   bool checkOdoConsistency(bool &first_stability, ros::Time &first_stability_time);
@@ -91,6 +93,9 @@ protected:
   // checks path when starting from zero speed with unknown speed up time
   bool checkPath(double vx, double vy, double vtheta, double vx_samp, double vy_samp, double vtheta_samp,
                  double acc_x, double acc_y, double acc_theta);
+
+  double getDistanceAtPose(const tf::Pose & pose, bool* in_bounds) const;
+
 
   /*********************************************************************
   *

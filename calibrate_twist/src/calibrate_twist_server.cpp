@@ -77,6 +77,7 @@ using namespace Eigen;
     // publish info to the console for the user
     ROS_INFO("%s: Executing, running calibration run for %f seconds with linear speed %f, angular speed %f", action_name_.c_str(), goal_.duration.toSec(), goal_.twist_goal.linear.x, goal_.twist_goal.angular.z);
 
+    updateVoronoi(); // loads values from costmap and pushes into voronoi
 //**************************************************
     // bringing the robot to the goal speed
 //**************************************************
@@ -414,23 +415,36 @@ geometry_msgs::TwistWithCovariance CalibrateAction::calcTwistWithCov(std::vector
 geometry_msgs::TwistWithCovariance CalibrateAction::estimateTwWithCovFromTrajectory(std::vector<tf::StampedTransform> transforms)
 {
     std::vector<geometry_msgs::Twist> transform_twists;
+    bool reverse = false;
     ROS_ASSERT(transforms.size()> transforms_interval_size); // make sure we have a large enough interval of transforms
     // only iterates to the size of the vector minus the given interval for caclulating the difference as a twist
     for(unsigned int i=0; i<transforms.size()-transforms_interval_size; i++)
     {
-        ros::Duration dur = transforms[i+transforms_interval_size].stamp_ - transforms[i].stamp_;        
-        geometry_msgs::Twist tempTwist = calcTwistFromTransform((transforms[i].inverseTimes(transforms[i+transforms_interval_size])),dur);
+        ros::Duration dur = transforms[i+transforms_interval_size].stamp_ - transforms[i].stamp_;
+        tf::Transform diff_transform = transforms[i].inverseTimes(transforms[i+transforms_interval_size]);
+
+        if(!reverse)
+        {
+            // calculate by angles if reverse driving is highly likely
+            double diff_angle = angles::normalize_angle(atan2(diff_transform.getOrigin().getY(),diff_transform.getOrigin().getX()));
+            double angle1 = angles::normalize_angle(tf::getYaw(transforms[i].getRotation())) - diff_angle;
+            double angle2 = angles::normalize_angle(tf::getYaw(transforms[i + transforms_interval_size].getRotation())) - diff_angle;
+            reverse = (fabs(angle1+angle2)>fabs((M_PI - angle1)+ (M_PI - angle2)));
+        }
+
+        geometry_msgs::Twist tempTwist = calcTwistFromTransform(diff_transform,dur, reverse);
         transform_twists.push_back(tempTwist);
     }
+    ROS_INFO("Reverse drive: %i", reverse);
     return calcTwistWithCov(transform_twists);
 }
 
-// calculates the linear and roatation speed out of given transform and duration
-geometry_msgs::Twist CalibrateAction::calcTwistFromTransform(tf::Transform _transform, ros::Duration _dur)
+// calculates the linear and roatation speed out of given transform and duration and reverse drive information
+geometry_msgs::Twist CalibrateAction::calcTwistFromTransform(tf::Transform _transform, ros::Duration _dur, bool reverse_)
 {
     geometry_msgs::Twist result_twist;
 
-    result_twist.linear.x = _transform.getOrigin().length() / _dur.toSec();
+    result_twist.linear.x = reverse_ ? (_transform.getOrigin().length() / _dur.toSec() *(-1)) : (_transform.getOrigin().length() / _dur.toSec());
     result_twist.linear.y = 0;
     result_twist.linear.z = 0;
 
@@ -543,6 +557,27 @@ void CalibrateAction::visualizeVoronoi()
 bool CalibrateAction::checkTrajectory(Trajectory& traj)
 {
     unsigned int size = traj.getPointsSize();
+    float smallest_dist = INFINITY;
+    bool isValid;
+    for(unsigned int i = 0; i< size;i++)
+    {
+        geometry_msgs::Pose tempPose;
+        tf::Pose tfPose;
+        traj.getPoint(i,tempPose.position.x, tempPose.position.y, tempPose.orientation.z);
+        tf::poseMsgToTF(tempPose, tfPose);
+        float dist = getDistanceAtPose(tfPose, &isValid);
+
+        if ((dist < traj_dist_threshold) && (dist != -INFINITY) && (dist != INFINITY)) // prevent negative infinity value from crashing us
+        {
+            ROS_INFO("Critical distance was %f at point %i, point valid: %i", dist, i, isValid);
+            return false;
+        }
+    }
+    ROS_INFO("Trajectory check successful, smallest distance was: %f", smallest_dist);
+    return true;
+
+    /*
+    unsigned int size = traj.getPointsSize();
    float smallest_dist = INFINITY;
     for(unsigned int i = 0; i< size;i++)
     {
@@ -560,8 +595,7 @@ bool CalibrateAction::checkTrajectory(Trajectory& traj)
             return false;
         }
     }
-    ROS_INFO("Trajectory check successful, smallest distance was: %f", smallest_dist);
-    return true;
+    */
 }
 
 void CalibrateAction::visualize_trajectory(Trajectory &traj)
@@ -657,6 +691,32 @@ bool CalibrateAction::checkPath(double vx, double vy, double vtheta, double vx_s
     return checkTrajectory(traj);
 }
 
+double CalibrateAction::getDistanceAtPose(const tf::Pose & pose, bool* in_bounds) const
+{
+    // determine current dist
+    int pose_x, pose_y;
+    costmap_.worldToMapNoBounds(pose.getOrigin().x(), pose.getOrigin().y(),
+            pose_x, pose_y);
+    //ROS_INFO("pose_x: %i, pose_y: %i", pose_x, pose_y);
+    if(pose_x < 0 || pose_y < 0 ||
+            pose_x >= (int)voronoi_.getSizeX() || pose_y >= (int)voronoi_.getSizeY()) {
+        if(in_bounds == NULL) {
+            // only warn if in_bounds isn't checked externally
+            ROS_WARN_THROTTLE(1.0, "%s: Pose out of voronoi bounds (%.2f, %.2f) = (%d, %d)", __func__,
+                    pose.getOrigin().x(), pose.getOrigin().y(), pose_x, pose_y);
+        } else {
+            *in_bounds = false;
+        }
+        return 0.0;
+    }
+    if(in_bounds)  {
+        *in_bounds = true;
+    }
+    float dist = voronoi_.getDistance(pose_x, pose_y);
+    dist *= costmap_.getResolution();
+    return dist;
+}
+
 
 /*********************************************************************
 *
@@ -675,7 +735,7 @@ bool CalibrateAction::checkPath(double vx, double vy, double vtheta, double vx_s
 * copyright notice, this list of conditions and the following
 * disclaimer in the documentation and/or other materials provided
 * with the distribution.
-* * Neither the name of the Willow Garage nor the names of its
+* * Neither the name of the WillgetPointow Garage nor the names of its
 * contributors may be used to endorse or promote products derived
 * from this software without specific prior written permission.
 *

@@ -18,6 +18,7 @@
   <depend package="costmap_2d"/>
   <depend package="dynamicvoronoi"/>
   <rosdep name="eigen"/>
+  <rosdep name="angles"/>
 
 
 </package>
