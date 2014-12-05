@@ -41,6 +41,9 @@ using namespace Eigen;
     nhPriv.getParamCached("cal_costmap", cal_costmap);
     nhPriv.getParamCached("traj_sim_granularity_", traj_sim_granularity_);
     nhPriv.getParamCached("traj_dist_threshold", traj_dist_threshold);
+    nhPriv.getParamCached("accel_max_x", accel_max_x);
+    nhPriv.getParamCached("accel_max_y", accel_max_y);
+    nhPriv.getParamCached("accel_max_theta", accel_max_theta);
 
     goal_ = *goal;
 
@@ -55,7 +58,8 @@ using namespace Eigen;
     message_filters::Subscriber<nav_msgs::Odometry> sub(nh_, "/odom", 1);
     odo_cache = new message_filters::Cache<nav_msgs::Odometry> (sub, odo_cache_depths);
 
-    marker_pub = nh_.advertise<geometry_msgs::PoseArray>("trajectory_", 10);
+    estTraj_pub = nh_.advertise<geometry_msgs::PoseArray>("est_traj_", 10);
+    calcTraj_pub = nh_.advertise<geometry_msgs::PoseArray>("calc_traj_", 10);
 
     twist_pub = nh_.advertise<geometry_msgs::Twist>("cmd_vel", 1);
 
@@ -77,7 +81,11 @@ using namespace Eigen;
     // bringing the robot to the goal speed
 //**************************************************
     bool stability_reached = false;
-    stability_reached = bringupGoalSpeed();
+
+    if(checkPath(0, 0, 0, goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, accel_max_x, accel_max_y, accel_max_theta))
+    {
+        stability_reached = bringupGoalSpeed();
+    }
 
     // not stopping robot here because we want to have continuous movement!
 
@@ -93,23 +101,19 @@ using namespace Eigen;
 //**************************************************
     else if(success)
     {
-        Trajectory traj;
-        tf::StampedTransform transform;
-        try
-        {
-            listener->lookupTransform("/map",robotFrame,ros::Time::now(), transform);
-        }
-         catch (tf::TransformException ex)
-         {
-             ROS_ERROR("Nope! %s", ex.what());
-         }
-
-        generateTrajectory(transform.getOrigin().x(), transform.getOrigin().y(), tf::getYaw(transform.getRotation()),
-                           goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, goal_.duration, traj);
-        if(checkTrajectory(traj))
+        if(checkPath(goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, goal_.duration.toSec(),
+                  goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, 0, 0, 0))
         {
             startCalibrationRun();
         }
+        else
+        {
+            twist_pub.publish(zero_twist); // safety first, stop robot
+            as_.setAborted();
+            ROS_INFO("%s: Aborted. No space to drive planned trajectory", action_name_.c_str());
+            success = false;
+        }
+
     }
     // end of movement, therefore robo is stopped
     twist_pub.publish(zero_twist); // safety first, stop robot
@@ -118,7 +122,10 @@ using namespace Eigen;
     // calculating the result
 //**************************************************
 
-    calculateResult();
+    if(success)
+    {
+        calculateResult();
+    }
 
 //**************************************************
     // publishing the result
@@ -318,7 +325,7 @@ void CalibrateAction::calculateResult()
     // calculating tf based result
     twistWCFromTf = estimateTwWithCovFromTrajectory(movement_transforms);
 
-    // publishing to tf
+    // publishing to rviz
     geometry_msgs::PoseArray poses;
     for(unsigned int i=0; i<movement_transforms.size();i++)
     {
@@ -328,7 +335,7 @@ void CalibrateAction::calculateResult()
         poses.poses.push_back(temp_pose);
     }
     poses.header.frame_id = tfFixedFrame;
-    marker_pub.publish(poses);
+    calcTraj_pub.publish(poses);
 }
 
 geometry_msgs::TwistWithCovariance CalibrateAction::calcTwistWithCov(std::vector<geometry_msgs::Twist> twists)
@@ -407,9 +414,11 @@ geometry_msgs::TwistWithCovariance CalibrateAction::calcTwistWithCov(std::vector
 geometry_msgs::TwistWithCovariance CalibrateAction::estimateTwWithCovFromTrajectory(std::vector<tf::StampedTransform> transforms)
 {
     std::vector<geometry_msgs::Twist> transform_twists;
+    ROS_ASSERT(transforms.size()> transforms_interval_size); // make sure we have a large enough interval of transforms
+    // only iterates to the size of the vector minus the given interval for caclulating the difference as a twist
     for(unsigned int i=0; i<transforms.size()-transforms_interval_size; i++)
     {
-        ros::Duration dur = transforms[i+transforms_interval_size].stamp_ - transforms[i].stamp_;
+        ros::Duration dur = transforms[i+transforms_interval_size].stamp_ - transforms[i].stamp_;        
         geometry_msgs::Twist tempTwist = calcTwistFromTransform((transforms[i].inverseTimes(transforms[i+transforms_interval_size])),dur);
         transform_twists.push_back(tempTwist);
     }
@@ -534,13 +543,13 @@ void CalibrateAction::visualizeVoronoi()
 bool CalibrateAction::checkTrajectory(Trajectory& traj)
 {
     unsigned int size = traj.getPointsSize();
-    for (unsigned int i = 0; i++; i< size)
+    for(unsigned int i = 0; i< size;i++)
     {
         geometry_msgs::Pose testPose;
         traj.getPoint(i,testPose.position.x, testPose.position.y, testPose.orientation.z);
         float dist = voronoi_.getDistance(testPose.position.x, testPose.position.y); // get closest distance from trajectory point to an obstacle
         dist *= costmap_.getResolution(); // distance now in meters
-        if (dist< traj_dist_threshold)
+        if (fabs(dist) < traj_dist_threshold)
         {
             ROS_INFO("Critical distance was %f at point %i", dist, i);
             return false;
@@ -549,6 +558,100 @@ bool CalibrateAction::checkTrajectory(Trajectory& traj)
     ROS_INFO("Trajectory check successful");
     return true;
 }
+
+void CalibrateAction::visualize_trajectory(Trajectory &traj)
+{
+    // publishing to rviz
+    geometry_msgs::PoseArray poses;
+    for(unsigned int i=0; i<traj.getPointsSize();i++)
+    {
+        geometry_msgs::Pose temp_pose;
+        double x_, y_,th_;
+        traj.getPoint(i, x_, y_, th_);
+        tf::quaternionTFToMsg(tf::createQuaternionFromYaw(th_),temp_pose.orientation);
+        temp_pose.position.x = x_;
+        temp_pose.position.y = y_;
+        poses.poses.push_back(temp_pose);
+        //ROS_INFO("Pose: x: %f y: %f th: %f", x_, y_, th_);
+    }
+    geometry_msgs::Pose temp_pose, temp_pose2;
+    double x_, y_,th_;
+    traj.getPoint(0, x_, y_, th_);
+    tf::quaternionTFToMsg(tf::createQuaternionFromYaw(th_),temp_pose.orientation);
+    temp_pose.position.x = x_;
+    temp_pose.position.y = y_;
+    traj.getEndpoint(x_, y_, th_);
+    tf::quaternionTFToMsg(tf::createQuaternionFromYaw(th_),temp_pose2.orientation);
+    temp_pose2.position.x = x_;
+    temp_pose2.position.y = y_;
+    ROS_INFO("Visualize trajectory with %i points\nFirst Point: x: %f y: %f\nLast Point: x: %f y: %f"
+             , traj.getPointsSize(),temp_pose.position.x,temp_pose.position.y,temp_pose2.position.x,temp_pose2.position.y);
+    poses.header.frame_id = tfFixedFrame;
+    estTraj_pub.publish(poses);
+}
+
+// checks if a path is clear from current position for given speed, goal speed, time and accel
+bool CalibrateAction::checkPath(double vx, double vy, double vtheta, double  sim_time_, double vx_samp, double vy_samp, double vtheta_samp,
+               double acc_x, double acc_y, double acc_theta)
+{
+    Trajectory traj;
+    tf::StampedTransform transform;
+    try
+    {
+        listener->lookupTransform("/map",robotFrame,ros::Time::now(), transform);
+    }
+     catch (tf::TransformException ex)
+     {
+         ROS_ERROR("Nope! %s", ex.what());
+     }
+
+    ROS_INFO("gen. Traj with pos x: %f, y: %f, th: %f, vel: x: %f, y:%f, th: %f, dur: %f", transform.getOrigin().getX(), transform.getOrigin().getY(), tf::getYaw(transform.getRotation()), vx, vy, vtheta, sim_time_);
+
+    // generate a trajectory for the given goal speed, rotation and time. No acceleration needed here
+    generateTrajectory(transform.getOrigin().getX(), transform.getOrigin().getY(), tf::getYaw(transform.getRotation()),
+                       vx, vy, vtheta, sim_time_, vx_samp, vy_samp, vtheta_samp, acc_x, acc_y, acc_theta, traj);
+    visualize_trajectory(traj);
+
+
+    return checkTrajectory(traj);
+}
+
+// checks path when starting from zero speed with unknown speed up time
+bool CalibrateAction::checkPath(double vx, double vy, double vtheta, double vx_samp, double vy_samp, double vtheta_samp,
+               double acc_x, double acc_y, double acc_theta)
+{
+    Trajectory traj;
+    tf::StampedTransform transform;
+    try
+    {
+        listener->lookupTransform("/map",robotFrame,ros::Time::now(), transform);
+    }
+     catch (tf::TransformException ex)
+     {
+         ROS_ERROR("Nope! %s", ex.what());
+     }
+
+
+
+    // getting maximum needed sim_time_
+    double sim_time_x = (vx_samp - vx)/acc_x;
+    double sim_time_y = (vy_samp - vy)/acc_y;
+    double sim_time_theta = (vtheta_samp - vtheta)/acc_theta;
+
+    double sim_time_ = std::max(sim_time_x,sim_time_y);
+            sim_time_ = std::max(sim_time_,sim_time_theta);
+
+    ROS_INFO("gen. Traj with pos x: %f, y: %f, th: %f, vel: x: %f, y:%f, th: %f, dur: %f", transform.getOrigin().getX(), transform.getOrigin().getY(), tf::getYaw(transform.getRotation()), vx, vy, vtheta, sim_time_);
+
+    // generate a trajectory for the given goal speed, rotation and time. No acceleration needed here
+    generateTrajectory(transform.getOrigin().getX(), transform.getOrigin().getY(), tf::getYaw(transform.getRotation()),
+                       vx, vy, vtheta, sim_time_, vx_samp, vy_samp, vtheta_samp, acc_x, acc_y, acc_theta, traj);
+    visualize_trajectory(traj);
+
+
+    return checkTrajectory(traj);
+}
+
 
 /*********************************************************************
 *
@@ -592,7 +695,8 @@ bool CalibrateAction::checkTrajectory(Trajectory& traj)
 */
 void CalibrateAction::generateTrajectory(
     double x, double y, double theta,
-    double vx, double vy, double vtheta, double  sim_time_, Trajectory& traj) {
+    double vx, double vy, double vtheta, double  sim_time_, double vx_samp, double vy_samp, double vtheta_samp,
+        double acc_x, double acc_y, double acc_theta, Trajectory& traj) {
 
     double x_i = x;
     double y_i = y;
@@ -620,6 +724,11 @@ void CalibrateAction::generateTrajectory(
     for(int i = 0; i < num_steps; ++i){
         //the point is legal... add it to the trajectory
         traj.addPoint(x_i, y_i, theta_i);
+
+        //calculate velocities
+        vx_i = computeNewVelocity(vx_samp, vx_i, acc_x, dt);
+        vy_i = computeNewVelocity(vy_samp, vy_i, acc_y, dt);
+        vtheta_i = computeNewVelocity(vtheta_samp, vtheta_i, acc_theta, dt);
 
         //calculate positions
         x_i = computeNewXPosition(x_i, vx_i, vy_i, theta_i, dt);

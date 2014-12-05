@@ -35,7 +35,8 @@ protected:
 
   ros::NodeHandle nh_;
   ros::Publisher twist_pub;    
-  ros::Publisher marker_pub;
+  ros::Publisher calcTraj_pub;
+  ros::Publisher estTraj_pub;
   // NodeHandle instance must be created before this line. Otherwise strange error may occur.
   actionlib::SimpleActionServer<calibrate_twist::CalibrateAction> as_;
   std::string action_name_;
@@ -81,6 +82,16 @@ protected:
 
   bool checkTrajectory(Trajectory& traj);
 
+  void visualize_trajectory(Trajectory& traj);
+
+  // checks if a path is clear from current position for given speed, goal speed, time and accel
+  bool checkPath(double vx, double vy, double vtheta, double  sim_time_, double vx_samp, double vy_samp, double vtheta_samp,
+                 double acc_x, double acc_y, double acc_theta);
+
+  // checks path when starting from zero speed with unknown speed up time
+  bool checkPath(double vx, double vy, double vtheta, double vx_samp, double vy_samp, double vtheta_samp,
+                 double acc_x, double acc_y, double acc_theta);
+
   /*********************************************************************
   *
   * Software License Agreement (BSD License)
@@ -119,8 +130,9 @@ protected:
   *********************************************************************/
 
   void generateTrajectory(
-      double x, double y, double theta,
-      double vx, double vy, double vtheta, double sim_time_, Trajectory &traj);
+          double x, double y, double theta,
+          double vx, double vy, double vtheta, double  sim_time_, double vx_samp, double vy_samp, double vtheta_samp,
+          double acc_x, double acc_y, double acc_theta, Trajectory& traj);
 
   /**
  * @brief Compute x position based on velocity
@@ -157,6 +169,21 @@ protected:
  return thetai + vth * dt;
  }
 
+ //compute velocity based on acceleration
+ /**
+  * @brief  Compute velocity based on acceleration
+  * @param vg The desired velocity, what we're accelerating up to
+  * @param vi The current velocity
+  * @param a_max An acceleration limit
+  * @param  dt The timestep to take
+  * @return The new velocity
+  */
+ inline double computeNewVelocity(double vg, double vi, double a_max, double dt){
+   if((vg - vi) >= 0)
+     return std::min(vg, vi + a_max * dt);
+   return std::max(vg, vi - a_max * dt);
+ }
+
 
 public:
 
@@ -187,6 +214,10 @@ std::string cal_costmap; // the name of the local costmap used for avoiding cras
 
 double traj_sim_granularity_; // the distance between trajectory simulation points // "The granularity with which to check for collisions along each trajectory in meters"
 double traj_dist_threshold; // threshold in meters how close the robot may get to an obstacle
+
+double accel_max_x; //maximum acceleration values of the robot
+double accel_max_y;
+double accel_max_theta;
 
 #endif
 
