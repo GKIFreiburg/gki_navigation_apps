@@ -44,6 +44,7 @@ using namespace Eigen;
     nhPriv.getParamCached("accel_max_x", accel_max_x);
     nhPriv.getParamCached("accel_max_y", accel_max_y);
     nhPriv.getParamCached("accel_max_theta", accel_max_theta);
+    nhPriv.getParamCached("min_time_clear", min_time_clear);
 
     goal_ = *goal;
 
@@ -77,7 +78,8 @@ using namespace Eigen;
     // publish info to the console for the user
     ROS_INFO("%s: Executing, running calibration run for %f seconds with linear speed %f, angular speed %f", action_name_.c_str(), goal_.duration.toSec(), goal_.twist_goal.linear.x, goal_.twist_goal.angular.z);
 
-    updateVoronoi(); // loads values from costmap and pushes into voronoi
+    // update voronoi at first, else no distance check is possible
+    updateVoronoi(); // load values from costmap and push them into voronoi
 //**************************************************
     // bringing the robot to the goal speed
 //**************************************************
@@ -102,6 +104,8 @@ using namespace Eigen;
 //**************************************************
     else if(success)
     {
+        ROS_INFO("Speed up successful, starting calibration run");
+
         if(checkPath(goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, goal_.duration.toSec(),
                   goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, 0, 0, 0))
         {
@@ -143,13 +147,6 @@ using namespace Eigen;
     // callback finished
   }
 
-/*
-  void CalibrateAction::costmapCB(const nav_msgs::GridCells::ConstPtr& msg)
-  {
-      updateVoronoi(msg);
-  }
-*/
-
 
 int main(int argc, char** argv)
 {
@@ -172,6 +169,7 @@ bool CalibrateAction::bringupGoalSpeed()
     ros::Time first_stability_time;
 
 
+    ROS_INFO("Robot speed up initialized");
     ros::Time stability_timeout_start = ros::Time::now();
     while((ros::Time::now().toSec()) < (stability_timeout_start.toSec() + stability_timeout))
     {
@@ -199,13 +197,19 @@ bool CalibrateAction::bringupGoalSpeed()
            ROS_INFO("Stability reached after %.2f seconds", ros::Time::now().toSec()-stability_timeout_start.toSec() );
            break;
        }
-       else
-       {
-           // ensure we don't hit anything during speedup
-           if(!checkPath((ros::Time::now().toSec()-stability_timeout_start.toSec())*accel_max_x,
-                         (ros::Time::now().toSec()-stability_timeout_start.toSec())*accel_max_y,
-                         (ros::Time::now().toSec()-stability_timeout_start.toSec())*accel_max_theta,
-                         goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, accel_max_x, accel_max_y, accel_max_theta))
+       else // ensure we don't hit anything during speedup
+       {                               
+           // use the sign or zero value to ensure we generate valid speed values out of the acceleration
+           int x_multiplier = (goal_.twist_goal.linear.x > 0) ? 1 : ((goal_.twist_goal.linear.x < 0) ? -1 : 0);
+           int y_multiplier = (goal_.twist_goal.linear.y > 0) ? 1 : ((goal_.twist_goal.linear.y < 0) ? -1 : 0);
+           int theta_multiplier = (goal_.twist_goal.angular.z > 0) ? 1 : ((goal_.twist_goal.angular.z < 0) ? -1 : 0);
+
+           // estimate current speed values from maximum accel and passed time
+           double vx_est = (ros::Time::now().toSec()-stability_timeout_start.toSec())*accel_max_x * x_multiplier;
+           double vy_est = (ros::Time::now().toSec()-stability_timeout_start.toSec())*accel_max_y * y_multiplier;
+           double vtheta_est = (ros::Time::now().toSec()-stability_timeout_start.toSec())*accel_max_theta * theta_multiplier;
+
+           if(!checkPath(vx_est, vy_est, vtheta_est, goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, accel_max_x, accel_max_y, accel_max_theta))
            {
                twist_pub.publish(zero_twist); // safety first, stop robot
                ROS_INFO("No space to reach stability");
@@ -235,7 +239,7 @@ bool CalibrateAction::checkOdoConsistency(bool &first_stability, ros::Time &firs
 
         ROS_INFO("%lu values: constance check: %4.3f on x-axis, %4.3f on z-rot", consistency_odo_interval.size(), result_twist.covariance[0],result_twist.covariance[35]);
 
-        //only if both values are lower than the threshold for 3x in a row we assume stability is reached
+        //only if both values are lower than the threshold for the minStabilityDuration we assume stability is reached
         if((result_twist.covariance[0] < stability_xThreshold) && (result_twist.covariance[35] < stability_zThreshold))
         {
             if(!first_stability)
@@ -287,9 +291,10 @@ void CalibrateAction::startCalibrationRun()
 
         updateVoronoi(); // loads values from costmap and pushes into voronoi
 
-        double timeLeft = std::max((goal_.duration-(ros::Time::now()-calibration_start)).toSec(), 1.0);
-        // ensure we don't hit anything calibration
-        if(checkPath(goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, timeLeft,
+        double timeLeft = std::max((goal_.duration-(ros::Time::now()-calibration_start)).toSec(), min_time_clear);
+
+        // ensure we don't hit anything during calibration run
+        if(!checkPath(goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, timeLeft,
                   goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, 0, 0, 0))
         {
             twist_pub.publish(zero_twist); // safety first, stop robot
@@ -478,24 +483,7 @@ geometry_msgs::Twist CalibrateAction::calcTwistFromTransform(tf::Transform _tran
     return result_twist;
 }
 
-/*
-void CalibrateAction::updateVoronoi(const nav_msgs::GridCells::ConstPtr& msg)
-{
-    std::vector<IntPoint> newObstacles;
-    for(unsigned int i=0; i++; i<msg->cells.size())
-    {
-        IntPoint temp_point;
-        if(worldToGrid(&(msg->cells[i]), &temp_point))
-        {
-            newObstacles.push_back(temp_point);
-        }
-    }
-    voronoi_.exchangeObstacles(newObstacles);
-    voronoi_.update(true);
-    visualizeVoronoi();
-}
-*/
-
+// copied from channelcontroller
 void CalibrateAction::updateVoronoi()
 {
     std::vector<IntPoint> obstacles;
@@ -517,6 +505,7 @@ void CalibrateAction::updateVoronoi()
     visualizeVoronoi();
 }
 
+// copied from channelcontroller
 void CalibrateAction::visualizeVoronoi()
 {
     double vis_max_dist_ = 1.0; // temporary because no param found
@@ -589,14 +578,18 @@ bool CalibrateAction::checkTrajectory(Trajectory& traj)
         traj.getPoint(i,tempPose.position.x, tempPose.position.y, tempPose.orientation.z);
         tf::poseMsgToTF(tempPose, tfPose);
         float dist = getDistanceAtPose(tfPose, &isValid);
-
+        // to be able to inform about closest distance
+        if (dist < smallest_dist)
+        {
+            smallest_dist = dist;
+        }
         if ((dist < traj_dist_threshold) && (dist != -INFINITY) && (dist != INFINITY)) // prevent negative infinity value from crashing us
         {
             ROS_INFO("Critical distance was %f at point %i, point valid: %i", dist, i, isValid);
             return false;
         }
     }
-    ROS_INFO("Trajectory check successful, smallest distance was: %f", smallest_dist);
+    //ROS_INFO("Trajectory check successful, smallest distance was: %f", smallest_dist);
     return true;
 
     /*
@@ -646,7 +639,7 @@ void CalibrateAction::visualize_trajectory(Trajectory &traj)
     tf::quaternionTFToMsg(tf::createQuaternionFromYaw(th_),temp_pose2.orientation);
     temp_pose2.position.x = x_;
     temp_pose2.position.y = y_;
-    ROS_INFO("Visualize trajectory with %i points\nFirst Point: x: %f y: %f\nLast Point: x: %f y: %f"
+    ROS_INFO("Visualize trajectory with %i points. First Point (%2.1f,%2.1f), last Point (%2.1f,%2.1f)"
              , traj.getPointsSize(),temp_pose.position.x,temp_pose.position.y,temp_pose2.position.x,temp_pose2.position.y);
     poses.header.frame_id = cost_map->getGlobalFrameID();;
     estTraj_pub.publish(poses);
@@ -660,14 +653,16 @@ bool CalibrateAction::checkPath(double vx, double vy, double vtheta, double  sim
     tf::StampedTransform transform;
     try
     {
-        listener->lookupTransform(cost_map->getGlobalFrameID(),robotFrame,ros::Time::now(), transform);
+        // shift lookup in the past by 100ms to ensure cache is not empty
+        listener->lookupTransform(cost_map->getGlobalFrameID(),robotFrame,ros::Time::now()-ros::Duration(0.1), transform);
     }
      catch (tf::TransformException ex)
      {
          ROS_ERROR("Nope! %s", ex.what());
+         return false;
      }
 
-    ROS_INFO("gen. Traj with pos x: %f, y: %f, th: %f, vel: x: %f, y:%f, th: %f, dur: %f", transform.getOrigin().getX(), transform.getOrigin().getY(), tf::getYaw(transform.getRotation()), vx, vy, vtheta, sim_time_);
+    //ROS_INFO("gen. Traj with pos x: %f, y: %f, th: %f, vel: x: %f, y:%f, th: %f, dur: %f", transform.getOrigin().getX(), transform.getOrigin().getY(), tf::getYaw(transform.getRotation()), vx, vy, vtheta, sim_time_);
 
     // generate a trajectory for the given goal speed, rotation and time. No acceleration needed here
     generateTrajectory(transform.getOrigin().getX(), transform.getOrigin().getY(), tf::getYaw(transform.getRotation()),
@@ -677,6 +672,7 @@ bool CalibrateAction::checkPath(double vx, double vy, double vtheta, double  sim
 
     return checkTrajectory(traj);
 }
+
 
 // checks path when starting from zero speed with unknown speed up time
 bool CalibrateAction::checkPath(double vx, double vy, double vtheta, double vx_samp, double vy_samp, double vtheta_samp,
@@ -686,25 +682,27 @@ bool CalibrateAction::checkPath(double vx, double vy, double vtheta, double vx_s
     tf::StampedTransform transform;
     try
     {
-        listener->lookupTransform(cost_map->getGlobalFrameID(),robotFrame,ros::Time::now(), transform);
+        // shift lookup in the past by 100ms to ensure cache is not empty
+        listener->lookupTransform(cost_map->getGlobalFrameID(),robotFrame,ros::Time::now()-ros::Duration(0.1), transform);
     }
      catch (tf::TransformException ex)
      {
          ROS_ERROR("Nope! %s", ex.what());
+         return false;
      }
 
 
 
-    // getting maximum needed sim_time_, absolute value, as time can't be negative
+    // getting maximum needed sim_time_, absolute value, as time can't be negative, but speed can be
     double sim_time_x = fabs((vx_samp - vx)/acc_x);
     double sim_time_y = fabs((vy_samp - vy)/acc_y);
     double sim_time_theta = fabs((vtheta_samp - vtheta)/acc_theta);
 
     double sim_time_ = std::max(sim_time_x,sim_time_y);
-            sim_time_ = std::max(sim_time_,sim_time_theta);
-            sim_time_ = std::max(sim_time_, 1.0);
+           sim_time_ = std::max(sim_time_,sim_time_theta);
+           sim_time_ = std::max(sim_time_, min_time_clear); // always check ahead at least 'min_time_clear' seconds
 
-    ROS_INFO("gen. Traj with pos x: %f, y: %f, th: %f, vel: x: %f, y:%f, th: %f, dur: %f", transform.getOrigin().getX(), transform.getOrigin().getY(), tf::getYaw(transform.getRotation()), vx, vy, vtheta, sim_time_);
+    //ROS_INFO("gen. Traj with pos x: %f, y: %f, th: %f, vel: x: %f, y:%f, th: %f, dur: %f", transform.getOrigin().getX(), transform.getOrigin().getY(), tf::getYaw(transform.getRotation()), vx, vy, vtheta, sim_time_);
 
     // generate a trajectory for the given goal speed, rotation and time. No acceleration needed here
     generateTrajectory(transform.getOrigin().getX(), transform.getOrigin().getY(), tf::getYaw(transform.getRotation()),
@@ -715,6 +713,7 @@ bool CalibrateAction::checkPath(double vx, double vy, double vtheta, double vx_s
     return checkTrajectory(traj);
 }
 
+// copied from channelcontroller
 double CalibrateAction::getDistanceAtPose(const tf::Pose & pose, bool* in_bounds) const
 {
     // determine current dist

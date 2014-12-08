@@ -224,5 +224,7 @@ double accel_max_x; //maximum acceleration values of the robot
 double accel_max_y;
 double accel_max_theta;
 
+double min_time_clear; // time in seconds that the trajectory is checked further than it's actually driven
+
 #endif
 

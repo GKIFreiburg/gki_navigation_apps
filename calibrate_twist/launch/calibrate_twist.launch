@@ -16,6 +16,7 @@
     <param name="accel_max_x" value= "0.25" />
     <param name="accel_max_y" value= "0.25" />
     <param name="accel_max_theta" value= "0.4" />
+    <param name="min_time_clear" value= "1.0" />
 
     <rosparam file="$(find gki_sickrd_executive)/config/costmap_common_params.yaml" command="load" ns="local_costmap" />
     <rosparam file="$(find gki_sickrd_executive)/config/local_costmap_params.yaml" command="load" />
