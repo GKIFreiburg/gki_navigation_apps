@@ -443,8 +443,6 @@ geometry_msgs::TwistWithCovariance CalibrateAction::calcTwistWithCov(std::vector
 geometry_msgs::TwistWithCovariance CalibrateAction::estimateTwWithCovFromTrajectory(std::vector<tf::StampedTransform> transforms)
 {
     std::vector<geometry_msgs::Twist> transform_twists;
-    bool reverse_drive = true;
-    bool negativeTurn = true;
     ROS_ASSERT(transforms.size()> transforms_interval_size); // make sure we have a large enough interval of transforms
     // only iterates to the size of the vector minus the given interval for caclulating the difference as a twist
     for(unsigned int i=0; i<transforms.size()-transforms_interval_size; i++)
@@ -455,7 +453,6 @@ geometry_msgs::TwistWithCovariance CalibrateAction::estimateTwWithCovFromTraject
         geometry_msgs::Twist tempTwist = calcTwistFromTransform(diff_transform,dur);
         transform_twists.push_back(tempTwist);
     }
-    ROS_INFO("Reverse drive: %i, negative turn: %i", reverse_drive, negativeTurn);
     return calcTwistWithCov(transform_twists);
 }
 
