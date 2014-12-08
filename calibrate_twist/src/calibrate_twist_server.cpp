@@ -443,7 +443,8 @@ geometry_msgs::TwistWithCovariance CalibrateAction::calcTwistWithCov(std::vector
 geometry_msgs::TwistWithCovariance CalibrateAction::estimateTwWithCovFromTrajectory(std::vector<tf::StampedTransform> transforms)
 {
     std::vector<geometry_msgs::Twist> transform_twists;
-    bool reverse = false;
+    bool reverse_drive = true;
+    bool negativeTurn = true;
     ROS_ASSERT(transforms.size()> transforms_interval_size); // make sure we have a large enough interval of transforms
     // only iterates to the size of the vector minus the given interval for caclulating the difference as a twist
     for(unsigned int i=0; i<transforms.size()-transforms_interval_size; i++)
@@ -451,34 +452,24 @@ geometry_msgs::TwistWithCovariance CalibrateAction::estimateTwWithCovFromTraject
         ros::Duration dur = transforms[i+transforms_interval_size].stamp_ - transforms[i].stamp_;
         tf::Transform diff_transform = transforms[i].inverseTimes(transforms[i+transforms_interval_size]);
 
-        if(!reverse)
-        {
-            // calculate by angles if reverse driving is highly likely
-            double diff_angle = angles::normalize_angle(atan2(diff_transform.getOrigin().getY(),diff_transform.getOrigin().getX()));
-            double angle1 = angles::normalize_angle(tf::getYaw(transforms[i].getRotation())) - diff_angle;
-            double angle2 = angles::normalize_angle(tf::getYaw(transforms[i + transforms_interval_size].getRotation())) - diff_angle;
-            reverse = (fabs(angle1+angle2)>fabs((M_PI - angle1)+ (M_PI - angle2)));
-        }
-
-        geometry_msgs::Twist tempTwist = calcTwistFromTransform(diff_transform,dur, reverse);
+        geometry_msgs::Twist tempTwist = calcTwistFromTransform(diff_transform,dur);
         transform_twists.push_back(tempTwist);
     }
-    ROS_INFO("Reverse drive: %i", reverse);
+    ROS_INFO("Reverse drive: %i, negative turn: %i", reverse_drive, negativeTurn);
     return calcTwistWithCov(transform_twists);
 }
 
 // calculates the linear and roatation speed out of given transform and duration and reverse drive information
-geometry_msgs::Twist CalibrateAction::calcTwistFromTransform(tf::Transform _transform, ros::Duration _dur, bool reverse_)
+geometry_msgs::Twist CalibrateAction::calcTwistFromTransform(tf::Transform _transform, ros::Duration _dur)
 {
     geometry_msgs::Twist result_twist;
-
-    result_twist.linear.x = reverse_ ? (_transform.getOrigin().length() / _dur.toSec() *(-1)) : (_transform.getOrigin().length() / _dur.toSec());
+    result_twist.linear.x = (_transform.getOrigin().length() / _dur.toSec()) * ((_transform.getOrigin().getX() < 0) ? -1 : 1);
     result_twist.linear.y = 0;
     result_twist.linear.z = 0;
 
     result_twist.angular.x = 0;
     result_twist.angular.y = 0;
-    result_twist.angular.z = (tf::getYaw(_transform.getRotation())) / _dur.toSec();
+    result_twist.angular.z = (tf::getYaw(_transform.getRotation()) / _dur.toSec());
 
     return result_twist;
 }
@@ -639,8 +630,7 @@ void CalibrateAction::visualize_trajectory(Trajectory &traj)
     tf::quaternionTFToMsg(tf::createQuaternionFromYaw(th_),temp_pose2.orientation);
     temp_pose2.position.x = x_;
     temp_pose2.position.y = y_;
-    ROS_INFO("Visualize trajectory with %i points. First Point (%2.1f,%2.1f), last Point (%2.1f,%2.1f)"
-             , traj.getPointsSize(),temp_pose.position.x,temp_pose.position.y,temp_pose2.position.x,temp_pose2.position.y);
+    //ROS_INFO("Visualize trajectory with %i points. First Point (%2.1f,%2.1f), last Point (%2.1f,%2.1f)", traj.getPointsSize(),temp_pose.position.x,temp_pose.position.y,temp_pose2.position.x,temp_pose2.position.y);
     poses.header.frame_id = cost_map->getGlobalFrameID();;
     estTraj_pub.publish(poses);
 }
