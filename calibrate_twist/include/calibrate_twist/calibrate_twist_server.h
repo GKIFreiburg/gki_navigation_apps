@@ -90,11 +90,18 @@ protected:
   bool checkPath(double vx, double vy, double vtheta, double  sim_time_, double vx_samp, double vy_samp, double vtheta_samp,
                  double acc_x, double acc_y, double acc_theta);
 
-  // checks path when starting from zero speed with unknown speed up time
-  bool checkPath(double vx, double vy, double vtheta, double vx_samp, double vy_samp, double vtheta_samp,
+  // checks if a path is clear from a given position for given speed, goal speed, time and accel
+  bool checkPath(double xPos, double yPos, double thetaPos, double vx, double vy, double vtheta, double  sim_time_, double vx_samp, double vy_samp, double vtheta_samp,
                  double acc_x, double acc_y, double acc_theta);
 
+  // checks path when starting from zero speed with unknown speed up time
+  bool checkPath(double vx, double vy, double vtheta, double vx_samp, double vy_samp, double vtheta_samp,
+                 double acc_x, double acc_y, double acc_theta, Trajectory *resultTraj = NULL);
+
   double getDistanceAtPose(const tf::Pose & pose, bool* in_bounds) const;
+
+  bool estimateFullPathIsClear(double vx_samp, double vy_samp, double vtheta_samp, double  sim_time_,
+                               double acc_x, double acc_y, double acc_theta);
 
 
   /*********************************************************************

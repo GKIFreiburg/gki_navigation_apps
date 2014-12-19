@@ -85,6 +85,9 @@ using namespace Eigen;
 //**************************************************
     bool stability_reached = false;
 
+    bool check = estimateFullPathIsClear(goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, goal_.duration.toSec(), accel_max_x, accel_max_y, accel_max_theta);
+    ROS_INFO("Full check results in %i", check);
+
     if(checkPath(0, 0, 0, goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, accel_max_x, accel_max_y, accel_max_theta))
     {
         stability_reached = bringupGoalSpeed();
@@ -98,6 +101,7 @@ using namespace Eigen;
         as_.setAborted();
         ROS_INFO("%s: Aborted. No stability reached within timeout", action_name_.c_str());
         success = false;
+        return;
     }
 //**************************************************
     // starting calibration run for given duration
@@ -107,7 +111,7 @@ using namespace Eigen;
         ROS_INFO("Speed up successful, starting calibration run");
 
         if(checkPath(goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, goal_.duration.toSec(),
-                  goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, 0, 0, 0))
+                  goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, 0.0, 0.0, 0.0))
         {
             startCalibrationRun();
         }
@@ -117,6 +121,7 @@ using namespace Eigen;
             as_.setAborted();
             ROS_INFO("%s: Aborted. No space to drive planned trajectory", action_name_.c_str());
             success = false;
+            return;
         }
 
     }
@@ -295,7 +300,7 @@ void CalibrateAction::startCalibrationRun()
 
         // ensure we don't hit anything during calibration run
         if(!checkPath(goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, timeLeft,
-                  goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, 0, 0, 0))
+                  goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, 0.0, 0.0, 0.0))
         {
             twist_pub.publish(zero_twist); // safety first, stop robot
             ROS_INFO("No space to complete calibration");
@@ -657,6 +662,17 @@ bool CalibrateAction::checkPath(double vx, double vy, double vtheta, double  sim
                        vx, vy, vtheta, sim_time_, vx_samp, vy_samp, vtheta_samp, acc_x, acc_y, acc_theta, traj);
     visualize_trajectory(traj);
 
+    return checkTrajectory(traj);
+}
+
+// checks if a path is clear from a given position for given speed, goal speed, time and accel
+bool CalibrateAction::checkPath(double xPos, double yPos, double thetaPos, double vx, double vy, double vtheta, double  sim_time_, double vx_samp, double vy_samp, double vtheta_samp,
+               double acc_x, double acc_y, double acc_theta)
+{
+    Trajectory traj;
+    // generate a trajectory for the given goal speed, rotation and time. No acceleration needed here
+    generateTrajectory(xPos, yPos, thetaPos, vx, vy, vtheta, sim_time_, vx_samp, vy_samp, vtheta_samp, acc_x, acc_y, acc_theta, traj);
+    visualize_trajectory(traj);
 
     return checkTrajectory(traj);
 }
@@ -664,7 +680,7 @@ bool CalibrateAction::checkPath(double vx, double vy, double vtheta, double  sim
 
 // checks path when starting from zero speed with unknown speed up time
 bool CalibrateAction::checkPath(double vx, double vy, double vtheta, double vx_samp, double vy_samp, double vtheta_samp,
-               double acc_x, double acc_y, double acc_theta)
+               double acc_x, double acc_y, double acc_theta, Trajectory *resultTraj)
 {
     Trajectory traj;
     tf::StampedTransform transform;
@@ -697,9 +713,14 @@ bool CalibrateAction::checkPath(double vx, double vy, double vtheta, double vx_s
                        vx, vy, vtheta, sim_time_, vx_samp, vy_samp, vtheta_samp, acc_x, acc_y, acc_theta, traj);
     visualize_trajectory(traj);
 
+    if(resultTraj != NULL)
+    {
+        *resultTraj = traj;
+    }
 
     return checkTrajectory(traj);
 }
+
 
 // copied from channelcontroller
 double CalibrateAction::getDistanceAtPose(const tf::Pose & pose, bool* in_bounds) const
@@ -726,6 +747,23 @@ double CalibrateAction::getDistanceAtPose(const tf::Pose & pose, bool* in_bounds
     float dist = voronoi_.getDistance(pose_x, pose_y);
     dist *= costmap_.getResolution();
     return dist;
+}
+
+// estimates if, at current position, all space for speed up and continuing calibration run is free up to threshold, given the values in the parameters
+bool CalibrateAction::estimateFullPathIsClear(double vx_samp, double vy_samp, double vtheta_samp, double  sim_time_,
+                                     double acc_x, double acc_y, double acc_theta)
+{
+    bool pathClear = false;
+    Trajectory tempTraj;
+    double x_, y_, theta_;
+
+    pathClear = checkPath(0, 0, 0, vx_samp, vy_samp, vtheta_samp, acc_x, acc_y, acc_theta, &tempTraj);
+
+    tempTraj.getEndpoint(x_, y_, theta_);
+
+    pathClear = checkPath(x_, y_, theta_, vx_samp, vy_samp, vtheta_samp, sim_time_, vx_samp, vy_samp, vtheta_samp, 0, 0, 0);
+
+    return pathClear;
 }
 
 
