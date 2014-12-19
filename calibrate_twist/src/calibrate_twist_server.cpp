@@ -367,6 +367,7 @@ void CalibrateAction::calculateResult()
     calcTraj_pub.publish(poses);
 }
 
+
 geometry_msgs::TwistWithCovariance CalibrateAction::calcTwistWithCov(std::vector<geometry_msgs::Twist> twists)
 {
     geometry_msgs::TwistWithCovariance resultTwist;

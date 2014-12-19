@@ -1,0 +1,20 @@
+<package>
+  <description brief="calibrateTwist_client">
+
+     calibrateTwist_client
+
+  </description>
+  <author>marschall-RoboCupUser</author>
+  <license>BSD</license>
+  <review status="unreviewed" notes=""/>
+  <url>http://ros.org/wiki/calibrateTwist_client</url>
+  <depend package="roscpp"/>
+  <depend package="calibrate_twist"/>
+
+  <rosdep name="libqt4-dev" />
+
+
+
+</package>
+
+
