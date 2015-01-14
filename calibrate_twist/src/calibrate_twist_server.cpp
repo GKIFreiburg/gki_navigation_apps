@@ -62,7 +62,7 @@ using namespace Eigen;
     estTraj_pub = nh_.advertise<geometry_msgs::PoseArray>("est_traj_", 10);
     calcTraj_pub = nh_.advertise<geometry_msgs::PoseArray>("calc_traj_", 10);
 
-    twist_pub = nh_.advertise<geometry_msgs::Twist>("cmd_vel", 1);
+    twist_pub = nh_.advertise<geometry_msgs::Twist>("/cmd_vel_mux/input/navi",1);//("cmd_vel", 1);
 
     voronoi_pub = nh_.advertise<visualization_msgs::MarkerArray>("voronoi_marker", 10);
 
@@ -127,6 +127,7 @@ using namespace Eigen;
     }
     // end of movement, therefore robo is stopped
     twist_pub.publish(zero_twist); // safety first, stop robot
+    ROS_INFO("Calibration run finished, calculating result...");
 
 //**************************************************
     // calculating the result
@@ -296,6 +297,18 @@ void CalibrateAction::startCalibrationRun()
 
         updateVoronoi(); // loads values from costmap and pushes into voronoi
 
+        // make the tf lookup to get the transformation from robot frame to the fixed frame
+        tf::StampedTransform tempTransform;
+        try{
+            listener->lookupTransform(tfFixedFrame, robotFrame,
+                                      ros::Time(0.0), tempTransform);
+          // store calculated transform
+          movement_transforms.push_back(tempTransform); // what happens if exception is thrown? not guaranteed that all transforms can be retrieved
+        }
+        catch (tf::TransformException ex){
+          ROS_ERROR("%s",ex.what());
+        }
+
         double timeLeft = std::max((goal_.duration-(ros::Time::now()-calibration_start)).toSec(), min_time_clear);
 
         // ensure we don't hit anything during calibration run
@@ -317,6 +330,7 @@ void CalibrateAction::calculateResult()
     // retrieving values from odo cache
     std::vector<nav_msgs::Odometry::ConstPtr> calibration_odo_interval = odo_cache->getInterval(calibration_start,calibration_end);
 
+/* // not needed any more, code moved to calibration run
     // create the transform vector that we fill, using tf
     std::vector<tf::StampedTransform> movement_transforms;
 
@@ -339,7 +353,7 @@ void CalibrateAction::calculateResult()
           ROS_ERROR("%s",ex.what());
         }
     }
-
+*/
     // for information if the transform lookup didn't succeed (at least 5 lookups unsuccessful)
     unsigned int interval_steps = goal_.duration.toSec() / calibration_calc_interval;
     if((movement_transforms.size()+5)<interval_steps)
@@ -647,7 +661,7 @@ bool CalibrateAction::checkPath(double vx, double vy, double vtheta, double  sim
     try
     {
         // shift lookup in the past by 100ms to ensure cache is not empty
-        listener->lookupTransform(cost_map->getGlobalFrameID(),robotFrame,ros::Time::now()-ros::Duration(0.1), transform);
+        listener->lookupTransform(cost_map->getGlobalFrameID(),robotFrame,ros::Time(0.0), transform);
     }
      catch (tf::TransformException ex)
      {
@@ -687,7 +701,7 @@ bool CalibrateAction::checkPath(double vx, double vy, double vtheta, double vx_s
     try
     {
         // shift lookup in the past by 100ms to ensure cache is not empty
-        listener->lookupTransform(cost_map->getGlobalFrameID(),robotFrame,ros::Time::now()-ros::Duration(0.1), transform);
+        listener->lookupTransform(cost_map->getGlobalFrameID(),robotFrame,ros::Time(0.0), transform);
     }
      catch (tf::TransformException ex)
      {

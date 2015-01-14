@@ -49,6 +49,7 @@ protected:
 
   ros::Time calibration_start;
   ros::Time calibration_end;
+  std::vector<tf::StampedTransform> movement_transforms;   // the transform vector that we fill, using tf during the calibration run
   geometry_msgs::Twist zero_twist;
   geometry_msgs::TwistWithCovariance twistWCFromOdometry; // temporary result before copied to action result
   geometry_msgs::TwistWithCovariance twistWCFromTf; // temporary result before copied to action result
