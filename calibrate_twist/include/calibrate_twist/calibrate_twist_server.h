@@ -28,8 +28,8 @@
 
 #include <angles/angles.h>
 
-
 using namespace Eigen;
+
 
 class CalibrateAction
 {

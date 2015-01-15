@@ -1,6 +1,8 @@
 #include "calibrationmain.h"
 #include "ui_calibrationmain.h"
 
+#include "boost/date_time/posix_time/posix_time.hpp"
+
 
 CalibrationMain::CalibrationMain(QWidget *parent) :
     QMainWindow(parent),
@@ -11,11 +13,38 @@ CalibrationMain::CalibrationMain(QWidget *parent) :
     count = 0;
     listModel = new QStandardItemModel();
 
+    // read all necessary parameters
+    keepFile = true;
+    ros::NodeHandle nhPriv("~");
+    nhPriv.getParamCached("filename", filename);
+    nhPriv.getParamCached("keepFile", keepFile);
+
     ROS_INFO("Waiting for action server to start");
     // wait for the action server to start
     ac.waitForServer(); //will wait for infinite time
 
     ROS_INFO("Action server started successfully");
+
+    // Writing the result in a textfile
+    string date = to_simple_string(ros::Time::now().toBoost());
+    ifstream f(filename.c_str());
+    if (f.good() && keepFile) // checking for existence of the file
+    {
+        ROS_INFO("File already present");
+        //ofstream resultFile(filename.c_str(), ios::out | ios::app);
+        ofstream resultFile("result.txt", ios::out | ios::app);
+        resultFile << "New session started ("<<date <<")\n\n";
+        resultFile.close();
+    }
+    else
+    {
+        ROS_INFO("File newly created");
+        //ofstream resultFile(filename.c_str(), ios::out);
+        ofstream resultFile("result.txt", ios::out);
+        resultFile << "This is the result file (created on " <<date <<")\n\n";
+        resultFile.close();
+    }
+    f.close();
 }
 
 CalibrationMain::~CalibrationMain()
@@ -66,6 +95,7 @@ void CalibrationMain::send_goal(double vx, double vrot, double time)
                 boost::bind(&CalibrationMain::doneCB, this, _1, _2),
                 Client::SimpleActiveCallback(),
                 Client::SimpleFeedbackCallback());
+        currentGoal = goal;
 /*    }
     else
     {
@@ -94,7 +124,11 @@ void CalibrationMain::doneCB(const actionlib::SimpleClientGoalState& goal, const
     if(state == actionlib::SimpleClientGoalState::SUCCEEDED)
     {
       ROS_INFO("state is succeeded");
+
       calibrate_twist::CalibrateResultConstPtr result = ac.getResult();
+
+      // Writing the result in a textfile
+      printToFile(result);
 
       QString myString = "vx: " + QString::number(result->calibrated_result.twist.linear.x) + ", " +
                          "vrot: " + QString::number(result->calibrated_result.twist.angular.z);
@@ -104,6 +138,20 @@ void CalibrationMain::doneCB(const actionlib::SimpleClientGoalState& goal, const
     }
 }
 
+void CalibrationMain::printToFile(const calibrate_twist::CalibrateResultConstPtr& result)
+{
+    double calibrate_vx = (currentGoal.twist_goal.linear.x/result->calibrated_result.twist.linear.x);
+    double calibrate_vrot = (currentGoal.twist_goal.angular.z/result->calibrated_result.twist.angular.z);
+    string date = to_simple_string(ros::Time::now().toBoost());
+    //ofstream resultFile(filename.c_str(), ios::out | ios::app);
+    ofstream resultFile("result.txt", ios::out | ios::app);
+    resultFile << "Calibration run on " <<date;
+    resultFile << "\n\tGoal: vx: " << currentGoal.twist_goal.linear.x <<" vrot: " <<currentGoal.twist_goal.angular.z // goal
+               <<"\n\tResult: vx: " <<result->calibrated_result.twist.linear.x <<" vrot: " <<result->calibrated_result.twist.angular.z // result
+               <<"\n\tCalibration value: vx: " <<calibrate_vx <<" vrot: " <<calibrate_vrot <<"\n\n"; //calibration value
+    resultFile.close();
+    ROS_INFO("Result written to file");
+}
 
 
 

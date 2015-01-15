@@ -11,6 +11,9 @@
 #include <actionlib/client/terminal_state.h>
 #include <calibrate_twist/CalibrateAction.h>
 
+#include <fstream>
+
+using namespace std;
 
 namespace Ui {
 class CalibrationMain;
@@ -34,11 +37,17 @@ private slots:
 
 private:
     void send_goal(double vx, double vrot, double time);
+    void printToFile(const calibrate_twist::CalibrateResultConstPtr& result);
 
     Ui::CalibrationMain *ui;
     int count;
     QStandardItemModel* listModel;
     Client ac;
+    calibrate_twist::CalibrateGoal currentGoal;
+
+    string filename;
+    bool keepFile;
+
 };
 
 #endif // CALIBRATIONMAIN_H

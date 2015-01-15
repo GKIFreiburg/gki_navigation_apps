@@ -279,6 +279,7 @@ void CalibrateAction::startCalibrationRun()
 {
     ros::Rate r(10);
     calibration_start = ros::Time::now();
+    ros::Time lastRecordedTime = calibration_start;
     // starting calibration run
     while((ros::Time::now().toSec()) < (calibration_start.toSec() + goal_.duration.toSec()))
     {
@@ -297,16 +298,21 @@ void CalibrateAction::startCalibrationRun()
 
         updateVoronoi(); // loads values from costmap and pushes into voronoi
 
-        // make the tf lookup to get the transformation from robot frame to the fixed frame
-        tf::StampedTransform tempTransform;
-        try{
-            listener->lookupTransform(tfFixedFrame, robotFrame,
-                                      ros::Time(0.0), tempTransform);
-          // store calculated transform
-          movement_transforms.push_back(tempTransform); // what happens if exception is thrown? not guaranteed that all transforms can be retrieved
-        }
-        catch (tf::TransformException ex){
-          ROS_ERROR("%s",ex.what());
+        // only record a new transform if the passed time is higher than the interval
+        if(ros::Time::now() >= (lastRecordedTime + ros::Duration(calibration_calc_interval)))
+        {
+            lastRecordedTime = ros::Time::now();
+            // make the tf lookup to get the transformation from robot frame to the fixed frame
+            tf::StampedTransform tempTransform;
+            try{
+                listener->lookupTransform(tfFixedFrame, robotFrame,
+                                          ros::Time(0.0), tempTransform);
+              // store calculated transform
+              movement_transforms.push_back(tempTransform); // what happens if exception is thrown? not guaranteed that all transforms can be retrieved
+            }
+            catch (tf::TransformException ex){
+              ROS_ERROR("%s",ex.what());
+            }
         }
 
         double timeLeft = std::max((goal_.duration-(ros::Time::now()-calibration_start)).toSec(), min_time_clear);
@@ -373,7 +379,7 @@ void CalibrateAction::calculateResult()
     // calculating tf based result
     twistWCFromTf = estimateTwWithCovFromTrajectory(movement_transforms);
 
-    // publishing to rviz
+    // publishing real trajectory to rviz
     geometry_msgs::PoseArray poses;
     for(unsigned int i=0; i<movement_transforms.size();i++)
     {
