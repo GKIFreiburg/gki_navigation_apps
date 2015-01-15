@@ -146,7 +146,7 @@ void CalibrationMain::printToFile(const calibrate_twist::CalibrateResultConstPtr
     //ofstream resultFile(filename.c_str(), ios::out | ios::app);
     ofstream resultFile("result.txt", ios::out | ios::app);
     resultFile << "Calibration run on " <<date;
-    resultFile << "\n\tGoal: vx: " << currentGoal.twist_goal.linear.x <<" vrot: " <<currentGoal.twist_goal.angular.z // goal
+    resultFile << "\n\tGoal: vx: " << currentGoal.twist_goal.linear.x <<" vrot: " <<currentGoal.twist_goal.angular.z <<"(Duration: " <<currentGoal.duration.toSec() <<"s)" // goal
                << "\n\tOdoResult: vx: " <<result->odo_result.twist.linear.x <<" vrot: " <<result->odo_result.twist.angular.z // result
                <<"\n\tResult: vx: " <<result->calibrated_result.twist.linear.x <<" vrot: " <<result->calibrated_result.twist.angular.z // result
                <<"\n\tCalibration value: vx: " <<calibrate_vx <<" vrot: " <<calibrate_vrot <<"\n\n"; //calibration value
