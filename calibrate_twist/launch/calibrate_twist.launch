@@ -9,6 +9,8 @@
     <param name="calibration_calc_interval" value="0.1" />
     <param name="tfFixedFrame" value="/odom" />
     <param name="robotFrame" value="/base_footprint" />
+    <param name="cmdVelTopic" value="cmd_vel" />
+    <!--param name="cmdVelTopic" value="/cmd_vel_mux/input/navi" /-->
     <param name="transforms_interval_size" value= "4" />
     <param name="cal_costmap" value= "local_costmap" />
     <param name="traj_sim_granularity_" value= "0.025" />

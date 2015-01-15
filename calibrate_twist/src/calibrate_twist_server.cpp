@@ -36,6 +36,7 @@ using namespace Eigen;
     nhPriv.getParamCached("calibration_calc_interval", calibration_calc_interval);
     nhPriv.getParamCached("tfFixedFrame", tfFixedFrame);
     nhPriv.getParamCached("robotFrame", robotFrame);
+    nhPriv.getParamCached("cmdVelTopic", cmdVelTopic);
     nhPriv.getParamCached("minStabilityDuration", minStabilityDuration);
     nhPriv.getParamCached("transforms_interval_size", transforms_interval_size);
     nhPriv.getParamCached("cal_costmap", cal_costmap);
@@ -62,7 +63,7 @@ using namespace Eigen;
     estTraj_pub = nh_.advertise<geometry_msgs::PoseArray>("est_traj_", 10);
     calcTraj_pub = nh_.advertise<geometry_msgs::PoseArray>("calc_traj_", 10);
 
-    twist_pub = nh_.advertise<geometry_msgs::Twist>("/cmd_vel_mux/input/navi",1);//("cmd_vel", 1);
+    twist_pub = nh_.advertise<geometry_msgs::Twist>(cmdVelTopic,1);
 
     voronoi_pub = nh_.advertise<visualization_msgs::MarkerArray>("voronoi_marker", 10);
 
@@ -279,7 +280,7 @@ void CalibrateAction::startCalibrationRun()
 {
     ros::Rate r(10);
     calibration_start = ros::Time::now();
-    ros::Time lastRecordedTime = calibration_start;
+    //ros::Time lastRecordedTime = calibration_start;
     // starting calibration run
     while((ros::Time::now().toSec()) < (calibration_start.toSec() + goal_.duration.toSec()))
     {
@@ -297,10 +298,10 @@ void CalibrateAction::startCalibrationRun()
         twist_pub.publish(goal_.twist_goal);
 
         updateVoronoi(); // loads values from costmap and pushes into voronoi
-
+/*
         // only record a new transform if the passed time is higher than the interval
-        if(ros::Time::now() >= (lastRecordedTime + ros::Duration(calibration_calc_interval)))
-        {
+        //if(ros::Time::now() >= (lastRecordedTime + ros::Duration(calibration_calc_interval)))
+        //{
             lastRecordedTime = ros::Time::now();
             // make the tf lookup to get the transformation from robot frame to the fixed frame
             tf::StampedTransform tempTransform;
@@ -313,8 +314,8 @@ void CalibrateAction::startCalibrationRun()
             catch (tf::TransformException ex){
               ROS_ERROR("%s",ex.what());
             }
-        }
-
+        //}
+*/
         double timeLeft = std::max((goal_.duration-(ros::Time::now()-calibration_start)).toSec(), min_time_clear);
 
         // ensure we don't hit anything during calibration run
@@ -336,7 +337,7 @@ void CalibrateAction::calculateResult()
     // retrieving values from odo cache
     std::vector<nav_msgs::Odometry::ConstPtr> calibration_odo_interval = odo_cache->getInterval(calibration_start,calibration_end);
 
-/* // not needed any more, code moved to calibration run
+ // not needed any more, code moved to calibration run
     // create the transform vector that we fill, using tf
     std::vector<tf::StampedTransform> movement_transforms;
 
@@ -359,7 +360,7 @@ void CalibrateAction::calculateResult()
           ROS_ERROR("%s",ex.what());
         }
     }
-*/
+
     // for information if the transform lookup didn't succeed (at least 5 lookups unsuccessful)
     unsigned int interval_steps = goal_.duration.toSec() / calibration_calc_interval;
     if((movement_transforms.size()+5)<interval_steps)

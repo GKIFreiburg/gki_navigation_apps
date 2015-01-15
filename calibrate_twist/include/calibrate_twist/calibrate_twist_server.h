@@ -219,6 +219,7 @@ double stability_intervalDuration; // defines in seconds how long in the past th
 double stability_xThreshold; // defines the maximal covariance on x lin-axis which is tolerated as stable
 double stability_zThreshold; // defines the maximal covariance on z rot-axis which is tolerated as stable
 double calibration_calc_interval; // value in seconds how long one calculated interval of the calibration should be
+std::string cmdVelTopic; // the topic the command values are being published to
 std::string tfFixedFrame; // defines the fixed frame for the transform lookup call
 std::string robotFrame; // defines the robot frame for the transform lookup call
 double minStabilityDuration; // time in seconds for how long stability criteria must be met
