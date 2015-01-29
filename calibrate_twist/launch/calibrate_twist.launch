@@ -4,8 +4,8 @@
     <param name="stability_timeout" value="5" />
     <param name="minStabilityDuration" value="1" />
     <param name="stability_intervalDuration" value="0.5" />
-    <param name="stability_xThreshold" value="0.2" />
-    <param name="stability_zThreshold" value="0.2" />
+    <param name="stability_xThreshold" value="0.1" />
+    <param name="stability_zThreshold" value="0.1" />
     <param name="calibration_calc_interval" value="0.1" />
     <param name="tfFixedFrame" value="/odom" />
     <param name="robotFrame" value="/base_footprint" />

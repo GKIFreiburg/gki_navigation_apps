@@ -1,6 +1,7 @@
 <launch>
   <node pkg="calibrateTwist_client" name="calibrateTwist_client" type="calibrateTwist_client" output="screen">
     <param name="filename" value= "result.txt" />
+    <param name="yamlname" value= "vxvrCalibration.yaml" />
     <param name="keepFile" value="1" />
 
   </node>

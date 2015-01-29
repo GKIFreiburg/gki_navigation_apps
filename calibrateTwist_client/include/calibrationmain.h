@@ -11,6 +11,10 @@
 #include <actionlib/client/terminal_state.h>
 #include <calibrate_twist/CalibrateAction.h>
 
+#include <move_base_msgs/MoveBaseAction.h>
+typedef actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseClient;
+
+
 #include <fstream>
 
 using namespace std;
@@ -35,18 +39,31 @@ private slots:
     void on_buttonClear_clicked();
     void on_buttonCancel_clicked();
 
+    void on_buttonContStart_clicked();
+    void on_buttonContCancel_clicked();
+
+    void on_ButtonSendHome_clicked();
+
 private:
     void send_goal(double vx, double vrot, double time);
     void printToFile(const calibrate_twist::CalibrateResultConstPtr& result);
+    void printStoreToYAML();
+
+    bool sendHomePositionGoal();
+    bool startContinuousRun();
 
     Ui::CalibrationMain *ui;
     int count;
     QStandardItemModel* listModel;
     Client ac;
     calibrate_twist::CalibrateGoal currentGoal;
+    bool goalSucceeded;
 
     string filename;
+    string yamlname;
     bool keepFile;
+    std::vector<calibrate_twist::CalibrateGoal> goals;
+    std::vector<calibrate_twist::CalibrateResult> results;
 
 };
 

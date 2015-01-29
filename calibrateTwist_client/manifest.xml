@@ -12,6 +12,7 @@
   <depend package="calibrate_twist"/>
 
   <rosdep name="libqt4-dev" />
+  <depend package="move_base_msgs"/>
 
 
 

@@ -17,6 +17,7 @@ CalibrationMain::CalibrationMain(QWidget *parent) :
     keepFile = true;
     ros::NodeHandle nhPriv("~");
     nhPriv.getParamCached("filename", filename);
+    nhPriv.getParamCached("yamlname", yamlname);
     nhPriv.getParamCached("keepFile", keepFile);
 
     ROS_INFO("Waiting for action server to start");
@@ -45,6 +46,26 @@ CalibrationMain::CalibrationMain(QWidget *parent) :
         resultFile.close();
     }
     f.close();
+
+    // Write / create YAML file
+    ifstream yamlfile(yamlname.c_str());
+    if (yamlfile.good() && keepFile) // checking for existence of the file
+    {
+        ROS_INFO("File already present");
+        //ofstream resultFile(filename.c_str(), ios::out | ios::app);
+        ofstream calFile("vxvrCalibration.yaml", ios::out | ios::app);
+        calFile << "New session started ("<<date <<")\n\n";
+        calFile.close();
+    }
+    else
+    {
+        ROS_INFO("File newly created");
+        //ofstream resultFile(filename.c_str(), ios::out);
+        ofstream calFile("vxvrCalibration.yaml", ios::out);
+        calFile << "This is the result file (created on " <<date <<")\n\n";
+        calFile.close();
+    }
+    yamlfile.close();
 }
 
 CalibrationMain::~CalibrationMain()
@@ -73,6 +94,32 @@ void CalibrationMain::on_buttonStart_clicked()
     double time = ui->SpinBoxRotSpeed_2->value();
 
     send_goal(xSpeed, rotSpeed, time);
+}
+
+void CalibrationMain::on_buttonContStart_clicked()
+{
+    startContinuousRun();
+}
+
+void CalibrationMain::on_buttonContCancel_clicked()
+{
+    return;
+}
+
+
+void CalibrationMain::on_ButtonSendHome_clicked()
+{
+    // test only!!
+    bool achieved = false;
+    achieved= sendHomePositionGoal();
+    if(achieved)
+    {
+        ROS_INFO("Reached home");
+    }
+    else
+    {
+        ROS_INFO("Did not reach home");
+    }
 }
 
 
@@ -120,12 +167,16 @@ void CalibrationMain::doneCB(const actionlib::SimpleClientGoalState& goal, const
     ROS_INFO("Action finished: %s",state.toString().c_str());
     QString text = QString::fromStdString(state.toString());
     ui->labelStatus->setText("State: " + text);
+    goalSucceeded = (goal == actionlib::SimpleClientGoalState::SUCCEEDED); // storing if goal succeeded
 
     if(state == actionlib::SimpleClientGoalState::SUCCEEDED)
     {
       ROS_INFO("state is succeeded");
 
       calibrate_twist::CalibrateResultConstPtr result = ac.getResult();
+      // store goal and result in a vector
+      goals.push_back(currentGoal);
+      results.push_back(*result);
 
       // Writing the result in a textfile
       printToFile(result);
@@ -154,10 +205,136 @@ void CalibrationMain::printToFile(const calibrate_twist::CalibrateResultConstPtr
     ROS_INFO("Result written to file");
 }
 
+void CalibrationMain::printStoreToYAML()
+{
+    ROS_ASSERT_MSG(results.size() == goals.size(), "Results and Goals differ in size!");
+
+    ofstream calFile("vxvrCalibration.yaml", ios::out | ios::app);
+    calFile << "\nCalibration:\n";
+
+    unsigned int num = goals.size();
+    for (unsigned int i = 0; i<num;i++)
+    {
+        double calibrate_vx = (goals[i].twist_goal.linear.x/results[i].calibrated_result.twist.linear.x);
+        double calibrate_vrot = (goals[i].twist_goal.angular.z/results[i].calibrated_result.twist.angular.z);
+        calFile <<"\t"<<goals[i].twist_goal.linear.x<<"\\"<<goals[i].twist_goal.angular.z<<": ";
+        calFile <<"{vx: "<<calibrate_vx <<", vr: " <<calibrate_vrot <<"}\n";
+        calFile.close();
+        ROS_INFO("Calibration written to YAML");
+    }
+}
 
 
+bool CalibrationMain::sendHomePositionGoal()
+{
+    MoveBaseClient ac_move("move_base", true);
+
+    //wait for the action server to come up
+    while(!ac_move.waitForServer(ros::Duration(5.0))){
+      ROS_INFO("Waiting for the move_base action server to come up");
+    }
+    if(ac_move.isServerConnected())
+    {
+        move_base_msgs::MoveBaseGoal goal;
+
+        //goal.target_pose.header.frame_id = "base_link";
+        goal.target_pose.header.frame_id = "/map";
+        goal.target_pose.header.stamp = ros::Time::now();
+
+        goal.target_pose.pose.position.x = 0.0;
+        goal.target_pose.pose.position.x = 0.0;
+        goal.target_pose.pose.position.x = 0.0;
+        goal.target_pose.pose.orientation.x = 0.0;
+        goal.target_pose.pose.orientation.y = 0.0;
+        goal.target_pose.pose.orientation.z = 0.0;
+        goal.target_pose.pose.orientation.w = 1.0;
+
+        ROS_INFO("Sending goal");
+        ac_move.sendGoal(goal);
+
+        ac_move.waitForResult();
+
+        if(ac_move.getState() == actionlib::SimpleClientGoalState::SUCCEEDED)
+        {
+          ROS_INFO("Hooray, the base moved 1 meter forward");
+          return true;
+        }
+        else
+        {
+          ROS_INFO("The base failed to move forward 1 meter for some reason");
+          return false;
+        }
+    }
+    else
+    {
+        ROS_INFO("could not connect to move_base server");
+        return false;
+    }
 
 
+}
+
+
+bool CalibrationMain::startContinuousRun()
+{
+    ROS_INFO("Continuous run started");
+
+    double xSpeed = ui->SpinBoxXSpeed->value();
+    double rotSpeed = ui->SpinBoxRotSpeed->value();
+    double xSpeedInc = ui->SpinBoxContXSpeed->value();
+    double rotSpeedInc = ui->SpinBoxContRotSpeed->value();
+    double time = ui->SpinBoxContCalTime->value();
+    double iterations = ui->SpinBoxNumIt->value();
+    bool vxvrInd = ui->CheckVxVrSeparate->isChecked();
+    bool safeHome = false;
+
+    goals.clear(); // fresh start for new run
+    results.clear(); // fresh start for new run
+
+    if(vxvrInd)
+    {
+        // vx and vr are independent -> need less runs
+        for(int i = 0; i<iterations; i++)
+        {
+            double _xSpeed = xSpeed + i*xSpeedInc;
+            double _rotSpeed = rotSpeed + i*rotSpeedInc;
+            send_goal(_xSpeed,_rotSpeed, time);
+            // wait until calibration run is finished, result stored in callback
+            ac.waitForResult();
+
+            safeHome = sendHomePositionGoal(); // function waits until we reach home or goal is aborted
+            if(!safeHome || !goalSucceeded) // abort runs if we did not reach home position or run was not successful
+            {
+                return false;
+            }
+        }
+    }
+    else
+    {
+        // vx and vr are dependent -> check everything separately
+        for(int i = 0; i<iterations; i++)
+        {
+            double _xSpeed = xSpeed + i*xSpeedInc;
+            for(int j = 0; j<iterations; j++)
+            {
+                double _rotSpeed = rotSpeed + j*rotSpeedInc;
+                send_goal(_xSpeed,_rotSpeed, time);
+                // wait until calibration run is finished, result stored in callback
+                ac.waitForResult();
+
+                safeHome = sendHomePositionGoal(); // function waits until we reach home or goal is aborted
+                if(!safeHome || !goalSucceeded) // abort runs if we did not reach home position or run was not successful
+                {
+                    return false;
+                }
+            }
+        }
+    }
+
+    // write YAML file here from stored results
+    printStoreToYAML();
+    return true;
+}
 
 
 

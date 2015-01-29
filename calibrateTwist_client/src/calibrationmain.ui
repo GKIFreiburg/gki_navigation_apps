@@ -206,7 +206,7 @@
     <property name="geometry">
      <rect>
       <x>438</x>
-      <y>110</y>
+      <y>140</y>
       <width>71</width>
       <height>27</height>
      </rect>
@@ -238,7 +238,7 @@
     <property name="geometry">
      <rect>
       <x>320</x>
-      <y>115</y>
+      <y>145</y>
       <width>121</width>
       <height>17</height>
      </rect>
@@ -293,7 +293,7 @@
     <property name="geometry">
      <rect>
       <x>428</x>
-      <y>150</y>
+      <y>180</y>
       <width>61</width>
       <height>27</height>
      </rect>
@@ -318,7 +318,7 @@
     <property name="geometry">
      <rect>
       <x>320</x>
-      <y>155</y>
+      <y>185</y>
       <width>121</width>
       <height>17</height>
      </rect>
@@ -344,7 +344,7 @@
     <property name="geometry">
      <rect>
       <x>430</x>
-      <y>190</y>
+      <y>220</y>
       <width>61</width>
       <height>27</height>
      </rect>
@@ -357,13 +357,65 @@
     <property name="geometry">
      <rect>
       <x>320</x>
-      <y>190</y>
+      <y>220</y>
       <width>91</width>
       <height>27</height>
      </rect>
     </property>
     <property name="text">
      <string>Start Run</string>
+    </property>
+   </widget>
+   <widget class="QCheckBox" name="CheckVxVrSeparate">
+    <property name="geometry">
+     <rect>
+      <x>320</x>
+      <y>110</y>
+      <width>211</width>
+      <height>22</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>vx/vr independent (less it.)</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="labelStatusCont">
+    <property name="geometry">
+     <rect>
+      <x>330</x>
+      <y>279</y>
+      <width>171</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>status</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_11">
+    <property name="geometry">
+     <rect>
+      <x>330</x>
+      <y>260</y>
+      <width>121</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Status:</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="ButtonSendHome">
+    <property name="geometry">
+     <rect>
+      <x>340</x>
+      <y>430</y>
+      <width>171</width>
+      <height>27</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>TEST send_home  TEST</string>
     </property>
    </widget>
   </widget>
