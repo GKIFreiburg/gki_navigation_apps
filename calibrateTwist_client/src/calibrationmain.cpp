@@ -1,8 +1,6 @@
 #include "calibrationmain.h"
 #include "ui_calibrationmain.h"
 
-#include "boost/date_time/posix_time/posix_time.hpp"
-
 
 CalibrationMain::CalibrationMain(QWidget *parent) :
     QMainWindow(parent),
@@ -66,6 +64,8 @@ CalibrationMain::CalibrationMain(QWidget *parent) :
         calFile.close();
     }
     yamlfile.close();
+
+   listener = new tf::TransformListener();
 }
 
 CalibrationMain::~CalibrationMain()
@@ -86,9 +86,6 @@ void CalibrationMain::on_buttonClear_clicked()
 
 void CalibrationMain::on_buttonStart_clicked()
 {
-    //count++;
-    //QString value = QString::number(count);
-    //ui->labelStatus->setText("clicked" + value);
     double xSpeed = ui->SpinBoxXSpeed->value();
     double rotSpeed = ui->SpinBoxRotSpeed->value();
     double time = ui->SpinBoxRotSpeed_2->value();
@@ -241,6 +238,8 @@ bool CalibrationMain::sendHomePositionGoal()
         goal.target_pose.header.frame_id = "/map";
         goal.target_pose.header.stamp = ros::Time::now();
 
+        goal.target_pose.pose = homePosition.pose;
+/*
         goal.target_pose.pose.position.x = 0.0;
         goal.target_pose.pose.position.x = 0.0;
         goal.target_pose.pose.position.x = 0.0;
@@ -248,7 +247,7 @@ bool CalibrationMain::sendHomePositionGoal()
         goal.target_pose.pose.orientation.y = 0.0;
         goal.target_pose.pose.orientation.z = 0.0;
         goal.target_pose.pose.orientation.w = 1.0;
-
+*/
         ROS_INFO("Sending goal");
         ac_move.sendGoal(goal);
 
@@ -277,8 +276,6 @@ bool CalibrationMain::sendHomePositionGoal()
 
 bool CalibrationMain::startContinuousRun()
 {
-    ROS_INFO("Continuous run started");
-
     double xSpeed = ui->SpinBoxXSpeed->value();
     double rotSpeed = ui->SpinBoxRotSpeed->value();
     double xSpeedInc = ui->SpinBoxContXSpeed->value();
@@ -288,8 +285,23 @@ bool CalibrationMain::startContinuousRun()
     bool vxvrInd = ui->CheckVxVrSeparate->isChecked();
     bool safeHome = false;
 
+    ROS_INFO("Continuous run started");
+
     goals.clear(); // fresh start for new run
     results.clear(); // fresh start for new run
+
+    // setting home position
+    tf::StampedTransform transform;
+    try
+    {
+        listener->lookupTransform("/map","/base_footprint",ros::Time(0.0), transform);
+    }
+    catch (tf::TransformException ex)
+    {
+         ROS_ERROR("Nope! %s", ex.what());
+         return false;
+    }
+    tf::poseTFToMsg(transform, homeTransform);
 
     if(vxvrInd)
     {

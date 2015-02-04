@@ -10,11 +10,8 @@
   <url>http://ros.org/wiki/calibrateTwist_client</url>
   <depend package="roscpp"/>
   <depend package="calibrate_twist"/>
-
   <rosdep name="libqt4-dev" />
   <depend package="move_base_msgs"/>
-
-
 
 </package>
 
