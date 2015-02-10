@@ -1,5 +1,5 @@
-#ifndef CALIBRATIONMAIN_H
-#define CALIBRATIONMAIN_H
+#ifndef CALIBRATIONMAIN_123_H
+#define CALIBRATIONMAIN_123_H
 
 #include <QMainWindow>
 #include <QListView>
@@ -37,7 +37,7 @@ public:
     ~CalibrationMain();
     void doneCB(const actionlib::SimpleClientGoalState& goal, const calibrate_twist::CalibrateResultConstPtr& result);
     
-private slots:
+private Q_SLOTS:
     void on_buttonStart_clicked();
     void on_buttonClear_clicked();
     void on_buttonCancel_clicked();
@@ -60,7 +60,7 @@ private:
     QStandardItemModel* listModel;
     Client ac;
     calibrate_twist::CalibrateGoal currentGoal;
-    bool goalSucceeded;
+    bool goalSucceeded; // if the current goal was achieved successfully or not
 
     string filename;
     string yamlname;

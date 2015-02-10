@@ -16,6 +16,8 @@ set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
 #set the default path for built libraries to the "lib" directory
 set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
 
+ADD_DEFINITIONS(-DQT_NO_KEYWORDS)
+
 find_package(Qt4 REQUIRED)
 set( QT_USE_QTGUI TRUE )
 set( QT_USE_QTOPENGL TRUE )

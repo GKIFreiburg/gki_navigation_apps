@@ -114,7 +114,7 @@ using namespace Eigen;
         if(checkPath(goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, goal_.duration.toSec(),
                   goal_.twist_goal.linear.x, goal_.twist_goal.linear.y, goal_.twist_goal.angular.z, 0.0, 0.0, 0.0))
         {
-            startCalibrationRun();
+           success = startCalibrationRun(); // check whether we finished the run successfully or not
         }
         else
         {
@@ -128,7 +128,6 @@ using namespace Eigen;
     }
     // end of movement, therefore robo is stopped
     twist_pub.publish(zero_twist); // safety first, stop robot
-    ROS_INFO("Calibration run finished, calculating result...");
 
 //**************************************************
     // calculating the result
@@ -136,7 +135,14 @@ using namespace Eigen;
 
     if(success)
     {
+        ROS_INFO("Calibration run finished, calculating result...");
         calculateResult();
+    }
+    else
+    {
+        ROS_INFO("Calibration aborted");
+        as_.setAborted();
+        return;
     }
 
 //**************************************************
@@ -151,6 +157,7 @@ using namespace Eigen;
       // set the action state to succeeded
       as_.setSucceeded(result_);
     }
+
     // callback finished
   }
 
@@ -276,7 +283,7 @@ bool CalibrateAction::checkOdoConsistency(bool &first_stability, ros::Time &firs
     return stability_reached;
 }
 
-void CalibrateAction::startCalibrationRun()
+bool CalibrateAction::startCalibrationRun()
 {
     ros::Rate r(10);
     calibration_start = ros::Time::now();
@@ -324,12 +331,13 @@ void CalibrateAction::startCalibrationRun()
         {
             twist_pub.publish(zero_twist); // safety first, stop robot
             ROS_INFO("No space to complete calibration");
-            break;
+            return false;
         }
 
         r.sleep(); // ensure 10Hz for cmd_vel
     }
     calibration_end = ros::Time::now();
+    return true;
 }
 
 void CalibrateAction::calculateResult()

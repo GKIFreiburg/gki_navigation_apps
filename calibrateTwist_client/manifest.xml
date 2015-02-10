@@ -13,6 +13,7 @@
   <rosdep name="libqt4-dev" />
   <depend package="move_base_msgs"/>
 
+  <depend package="tf"/>
 </package>
 
 

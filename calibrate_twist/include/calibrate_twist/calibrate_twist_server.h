@@ -75,7 +75,7 @@ protected:
 
   bool bringupGoalSpeed();
   bool checkOdoConsistency(bool &first_stability, ros::Time &first_stability_time);
-  void startCalibrationRun();
+  bool startCalibrationRun();
   void calculateResult();
 
   void visualizeVoronoi();

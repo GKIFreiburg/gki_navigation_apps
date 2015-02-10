@@ -49,7 +49,7 @@ CalibrationMain::CalibrationMain(QWidget *parent) :
     ifstream yamlfile(yamlname.c_str());
     if (yamlfile.good() && keepFile) // checking for existence of the file
     {
-        ROS_INFO("File already present");
+        ROS_INFO("YAML-File already present");
         //ofstream resultFile(filename.c_str(), ios::out | ios::app);
         ofstream calFile("vxvrCalibration.yaml", ios::out | ios::app);
         calFile << "New session started ("<<date <<")\n\n";
@@ -238,7 +238,7 @@ bool CalibrationMain::sendHomePositionGoal()
         goal.target_pose.header.frame_id = "/map";
         goal.target_pose.header.stamp = ros::Time::now();
 
-        goal.target_pose.pose = homePosition.pose;
+        goal.target_pose.pose = homeTransform;
 /*
         goal.target_pose.pose.position.x = 0.0;
         goal.target_pose.pose.position.x = 0.0;
@@ -347,6 +347,7 @@ bool CalibrationMain::startContinuousRun()
     printStoreToYAML();
     return true;
 }
+
 
 
 
