@@ -52,7 +52,7 @@ CalibrationMain::CalibrationMain(QWidget *parent) :
         ROS_INFO("YAML-File already present");
         //ofstream resultFile(filename.c_str(), ios::out | ios::app);
         ofstream calFile("vxvrCalibration.yaml", ios::out | ios::app);
-        calFile << "New session started ("<<date <<")\n\n";
+        calFile << "\nNew session started ("<<date <<")\n";
         calFile.close();
     }
     else
@@ -216,9 +216,9 @@ void CalibrationMain::printStoreToYAML()
         double calibrate_vrot = (goals[i].twist_goal.angular.z/results[i].calibrated_result.twist.angular.z);
         calFile <<"\t"<<goals[i].twist_goal.linear.x<<"\\"<<goals[i].twist_goal.angular.z<<": ";
         calFile <<"{vx: "<<calibrate_vx <<", vr: " <<calibrate_vrot <<"}\n";
-        calFile.close();
-        ROS_INFO("Calibration written to YAML");
     }
+        calFile.close();
+        ROS_INFO("%i Calibration entries written to YAML", num);
 }
 
 
@@ -248,19 +248,19 @@ bool CalibrationMain::sendHomePositionGoal()
         goal.target_pose.pose.orientation.z = 0.0;
         goal.target_pose.pose.orientation.w = 1.0;
 */
-        ROS_INFO("Sending goal");
+        ROS_INFO("Sending robot home");
         ac_move.sendGoal(goal);
 
         ac_move.waitForResult();
 
         if(ac_move.getState() == actionlib::SimpleClientGoalState::SUCCEEDED)
         {
-          ROS_INFO("Hooray, the base moved 1 meter forward");
+          //ROS_INFO("Hooray, the base moved 1 meter forward");
           return true;
         }
         else
         {
-          ROS_INFO("The base failed to move forward 1 meter for some reason");
+          ROS_INFO("The base failed to move for some reason");
           return false;
         }
     }
@@ -317,6 +317,7 @@ bool CalibrationMain::startContinuousRun()
             safeHome = sendHomePositionGoal(); // function waits until we reach home or goal is aborted
             if(!safeHome || !goalSucceeded) // abort runs if we did not reach home position or run was not successful
             {
+                printStoreToYAML();
                 return false;
             }
         }
@@ -337,8 +338,17 @@ bool CalibrationMain::startContinuousRun()
                 safeHome = sendHomePositionGoal(); // function waits until we reach home or goal is aborted
                 if(!safeHome || !goalSucceeded) // abort runs if we did not reach home position or run was not successful
                 {
+                    printStoreToYAML();
                     return false;
                 }
+                if(rotSpeedInc == 0.0) // if there's no increase in rotational speed we don't need to iterate
+                {
+                    break;
+                }
+            }
+            if(xSpeedInc == 0.0) // if there's no increase in translational speed we don't need to iterate
+            {
+                break;
             }
         }
     }
