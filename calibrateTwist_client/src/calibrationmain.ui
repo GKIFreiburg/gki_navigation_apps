@@ -405,7 +405,7 @@
      <string>Status:</string>
     </property>
    </widget>
-   <widget class="QPushButton" name="pushButton">
+   <widget class="QPushButton" name="buttonSendHome">
     <property name="geometry">
      <rect>
       <x>340</x>

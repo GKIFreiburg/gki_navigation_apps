@@ -45,7 +45,7 @@ private Q_SLOTS:
     void on_buttonContStart_clicked();
     void on_buttonContCancel_clicked();
 
-    void on_ButtonSendHome_clicked();
+    void on_buttonSendHome_clicked();
 
 private:
     void send_goal(double vx, double vrot, double time);

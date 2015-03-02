@@ -52,7 +52,7 @@ CalibrationMain::CalibrationMain(QWidget *parent) :
         ROS_INFO("YAML-File already present");
         //ofstream resultFile(filename.c_str(), ios::out | ios::app);
         ofstream calFile("vxvrCalibration.yaml", ios::out | ios::app);
-        calFile << "\nNew session started ("<<date <<")\n";
+        calFile << "\n#New session started ("<<date <<")\n";
         calFile.close();
     }
     else
@@ -104,11 +104,11 @@ void CalibrationMain::on_buttonContCancel_clicked()
 }
 
 
-void CalibrationMain::on_ButtonSendHome_clicked()
+void CalibrationMain::on_buttonSendHome_clicked()
 {
     // test only!!
     bool achieved = false;
-    achieved= sendHomePositionGoal();
+    achieved = sendHomePositionGoal();
     if(achieved)
     {
         ROS_INFO("Reached home");
@@ -201,7 +201,7 @@ void CalibrationMain::printToFile(const calibrate_twist::CalibrateResultConstPtr
     resultFile.close();
     ROS_INFO("Result written to file");
 }
-
+/* Old format!
 void CalibrationMain::printStoreToYAML()
 {
     ROS_ASSERT_MSG(results.size() == goals.size(), "Results and Goals differ in size!");
@@ -214,8 +214,51 @@ void CalibrationMain::printStoreToYAML()
     {
         double calibrate_vx = (goals[i].twist_goal.linear.x/results[i].calibrated_result.twist.linear.x);
         double calibrate_vrot = (goals[i].twist_goal.angular.z/results[i].calibrated_result.twist.angular.z);
-        calFile <<"\t"<<goals[i].twist_goal.linear.x<<"\\"<<goals[i].twist_goal.angular.z<<": ";
+        calFile <<goals[i].twist_goal.linear.x<<"\\"<<goals[i].twist_goal.angular.z<<": ";
         calFile <<"{vx: "<<calibrate_vx <<", vr: " <<calibrate_vrot <<"}\n";
+    }
+        calFile.close();
+        ROS_INFO("%i Calibration entries written to YAML", num);
+}
+*/
+
+
+void CalibrationMain::printStoreToYAML()
+{
+    ROS_ASSERT_MSG(results.size() == goals.size(), "Results and Goals differ in size!");
+    double xSpeedInc = ui->SpinBoxContXSpeed->value();
+    double rotSpeedInc = ui->SpinBoxContRotSpeed->value();
+
+    ofstream calFile("vxvrCalibration.yaml", ios::out | ios::app);
+    calFile << "\n#Calibration:\n";
+
+    unsigned int num = goals.size();
+    calFile << "\ntv:\n  resolution: ";
+    calFile << xSpeedInc;
+    calFile << "\nstart_value: ";
+    calFile << goals[0].twist_goal.linear.x;
+    calFile << "\n  data:\n";
+    // calculate first value here
+    double calibrate_vx = (goals[0].twist_goal.linear.x/results[0].calibrated_result.twist.linear.x);
+    calFile <<"  - "<<calibrate_vx;
+    for (unsigned int i = 1; i<num;i++)
+    {
+        double calibrate_vx = (goals[i].twist_goal.linear.x/results[i].calibrated_result.twist.linear.x);
+        calFile <<"    "<<calibrate_vx;
+    }
+
+    calFile << "\nrv:\n  resolution: ";
+    calFile << rotSpeedInc;
+    calFile << "\n  start_value: ";
+    calFile << goals[0].twist_goal.angular.z;
+    calFile << "\n  data:\n";
+    // calculate first value here
+    double calibrate_vrot = (goals[0].twist_goal.angular.z/results[0].calibrated_result.twist.angular.z);
+    calFile <<"  - "<<calibrate_vrot;
+    for (unsigned int i = 1; i<num;i++)
+    {
+        double calibrate_vrot = (goals[i].twist_goal.angular.z/results[i].calibrated_result.twist.angular.z);
+        calFile <<"    "<<calibrate_vrot;
     }
         calFile.close();
         ROS_INFO("%i Calibration entries written to YAML", num);
@@ -255,7 +298,7 @@ bool CalibrationMain::sendHomePositionGoal()
 
         if(ac_move.getState() == actionlib::SimpleClientGoalState::SUCCEEDED)
         {
-          //ROS_INFO("Hooray, the base moved 1 meter forward");
+          ROS_INFO("Hooray, we reached home!");
           return true;
         }
         else
