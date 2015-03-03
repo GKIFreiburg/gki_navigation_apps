@@ -61,6 +61,8 @@ private:
     Client ac;
     calibrate_twist::CalibrateGoal currentGoal;
     bool goalSucceeded; // if the current goal was achieved successfully or not
+    bool vxvrInd;
+    double iterations;
 
     string filename;
     string yamlname;
@@ -70,7 +72,11 @@ private:
 
     tf::TransformListener* listener; // TF listener
     geometry_msgs::Pose homeTransform; // home position
-
 };
+
+inline bool compareDouble(double x, double y)
+{
+    return (fabs(x-y)< 0.0000001);
+}
 
 #endif // CALIBRATIONMAIN_H

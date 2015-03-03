@@ -40,7 +40,7 @@ CalibrationMain::CalibrationMain(QWidget *parent) :
         ROS_INFO("File newly created");
         //ofstream resultFile(filename.c_str(), ios::out);
         ofstream resultFile("result.txt", ios::out);
-        resultFile << "This is the result file (created on " <<date <<")\n\n";
+        resultFile << "#This is the result file (created on " <<date <<")\n\n";
         resultFile.close();
     }
     f.close();
@@ -60,7 +60,7 @@ CalibrationMain::CalibrationMain(QWidget *parent) :
         ROS_INFO("File newly created");
         //ofstream resultFile(filename.c_str(), ios::out);
         ofstream calFile("vxvrCalibration.yaml", ios::out);
-        calFile << "This is the result file (created on " <<date <<")\n\n";
+        calFile << "#This is the result file (created on " <<date <<")\n\n";
         calFile.close();
     }
     yamlfile.close();
@@ -190,6 +190,12 @@ void CalibrationMain::printToFile(const calibrate_twist::CalibrateResultConstPtr
 {
     double calibrate_vx = (currentGoal.twist_goal.linear.x/result->calibrated_result.twist.linear.x);
     double calibrate_vrot = (currentGoal.twist_goal.angular.z/result->calibrated_result.twist.angular.z);
+    // calibration value can never be 0 -> only happens if 0 is divided by 0, but the correct calibration value then is 1
+    if (compareDouble (calibrate_vrot,0.0))
+        calibrate_vx = 1;
+    if (compareDouble (calibrate_vrot,0.0))
+        calibrate_vrot = 1;
+
     string date = to_simple_string(ros::Time::now().toBoost());
     //ofstream resultFile(filename.c_str(), ios::out | ios::app);
     ofstream resultFile("result.txt", ios::out | ios::app);
@@ -214,6 +220,12 @@ void CalibrationMain::printStoreToYAML()
     {
         double calibrate_vx = (goals[i].twist_goal.linear.x/results[i].calibrated_result.twist.linear.x);
         double calibrate_vrot = (goals[i].twist_goal.angular.z/results[i].calibrated_result.twist.angular.z);
+        // calibration value can never be 0 -> only happens if 0 is divided by 0, but the correct calibration value then is 1
+        if (compareDouble (calibrate_vrot,0.0))
+            calibrate_vx = 1;
+        if (compareDouble (calibrate_vrot,0.0))
+            calibrate_vrot = 1;
+
         calFile <<goals[i].twist_goal.linear.x<<"\\"<<goals[i].twist_goal.angular.z<<": ";
         calFile <<"{vx: "<<calibrate_vx <<", vr: " <<calibrate_vrot <<"}\n";
     }
@@ -232,36 +244,72 @@ void CalibrationMain::printStoreToYAML()
     ofstream calFile("vxvrCalibration.yaml", ios::out | ios::app);
     calFile << "\n#Calibration:\n";
 
-    unsigned int num = goals.size();
-    calFile << "\ntv:\n  resolution: ";
-    calFile << xSpeedInc;
-    calFile << "\nstart_value: ";
-    calFile << goals[0].twist_goal.linear.x;
-    calFile << "\n  data:\n";
-    // calculate first value here
-    double calibrate_vx = (goals[0].twist_goal.linear.x/results[0].calibrated_result.twist.linear.x);
-    calFile <<"  - "<<calibrate_vx;
-    for (unsigned int i = 1; i<num;i++)
+    calFile << "\nvxvrInd: ";
+    if(vxvrInd)
     {
-        double calibrate_vx = (goals[i].twist_goal.linear.x/results[i].calibrated_result.twist.linear.x);
-        calFile <<"    "<<calibrate_vx;
-    }
+        calFile << "true\n";
 
-    calFile << "\nrv:\n  resolution: ";
-    calFile << rotSpeedInc;
-    calFile << "\n  start_value: ";
-    calFile << goals[0].twist_goal.angular.z;
-    calFile << "\n  data:\n";
-    // calculate first value here
-    double calibrate_vrot = (goals[0].twist_goal.angular.z/results[0].calibrated_result.twist.angular.z);
-    calFile <<"  - "<<calibrate_vrot;
-    for (unsigned int i = 1; i<num;i++)
-    {
-        double calibrate_vrot = (goals[i].twist_goal.angular.z/results[i].calibrated_result.twist.angular.z);
-        calFile <<"    "<<calibrate_vrot;
-    }
+        unsigned int num = goals.size();
+        calFile << "tv:\n  resolution: " <<xSpeedInc;
+        calFile << "\nstart_value: " <<goals[0].twist_goal.linear.x;
+        calFile << "\n  data:\n";
+        for (unsigned int i = 0; i<num;i++)
+        {
+            double calibrate_vx = (goals[i].twist_goal.linear.x/results[i].calibrated_result.twist.linear.x);
+            if (compareDouble (calibrate_vx,0.0))
+                calibrate_vx = 1;
+            calFile <<"  -  " <<calibrate_vx;
+        }
+
+        calFile << "\nrv:\n  resolution: " <<rotSpeedInc;
+        calFile << "\n  start_value: " <<goals[0].twist_goal.angular.z;
+        calFile << "\n  data:\n";
+        for (unsigned int i = 0; i<num;i++)
+        {
+            double calibrate_vrot = (goals[i].twist_goal.angular.z/results[i].calibrated_result.twist.angular.z);
+            if (compareDouble (calibrate_vrot,0.0))
+                calibrate_vrot = 1;
+            calFile <<"  -  " <<calibrate_vrot;
+        }
         calFile.close();
         ROS_INFO("%i Calibration entries written to YAML", num);
+    }
+    else
+    {
+        // vx and vr not independent: there are "iterations"-count of rot-vals for each trans-val
+        // rv part contains several data entries: data1, data2 ...data"iterations"
+
+        calFile << "false\n";
+
+        unsigned int num = goals.size();
+        calFile << "tv:\n  resolution: " <<xSpeedInc;
+        calFile << "\nstart_value: " <<goals[0].twist_goal.linear.x;
+        calFile << "\n  data:\n";
+        for (unsigned int i = 0; i<num;i+iterations)
+        {
+            double calibrate_vx = (goals[i].twist_goal.linear.x/results[i].calibrated_result.twist.linear.x);
+            if (compareDouble (calibrate_vx,0.0))
+                calibrate_vx = 1;
+            calFile <<"  -  " <<calibrate_vx;
+        }
+
+        calFile << "\nrv:\n  resolution: " <<rotSpeedInc;
+        calFile << "\n  start_value: " <<goals[0].twist_goal.angular.z;
+        for(unsigned int j = 1; j<=iterations; j++)
+        {
+            calFile << "\n  data" <<j <<":\n";
+            for (unsigned int i = 0+j*iterations; i<j*iterations;i++)
+            {
+                double calibrate_vrot = (goals[i].twist_goal.angular.z/results[i].calibrated_result.twist.angular.z);
+                if (compareDouble (calibrate_vrot,0.0))
+                    calibrate_vrot = 1;
+                calFile <<"  -  " <<calibrate_vrot;
+            }
+        }
+        calFile.close();
+        ROS_INFO("%i Calibration entries written to YAML", num);
+    }
+
 }
 
 
@@ -282,15 +330,7 @@ bool CalibrationMain::sendHomePositionGoal()
         goal.target_pose.header.stamp = ros::Time::now();
 
         goal.target_pose.pose = homeTransform;
-/*
-        goal.target_pose.pose.position.x = 0.0;
-        goal.target_pose.pose.position.x = 0.0;
-        goal.target_pose.pose.position.x = 0.0;
-        goal.target_pose.pose.orientation.x = 0.0;
-        goal.target_pose.pose.orientation.y = 0.0;
-        goal.target_pose.pose.orientation.z = 0.0;
-        goal.target_pose.pose.orientation.w = 1.0;
-*/
+
         ROS_INFO("Sending robot home");
         ac_move.sendGoal(goal);
 
@@ -312,8 +352,6 @@ bool CalibrationMain::sendHomePositionGoal()
         ROS_INFO("could not connect to move_base server");
         return false;
     }
-
-
 }
 
 
@@ -324,9 +362,10 @@ bool CalibrationMain::startContinuousRun()
     double xSpeedInc = ui->SpinBoxContXSpeed->value();
     double rotSpeedInc = ui->SpinBoxContRotSpeed->value();
     double time = ui->SpinBoxContCalTime->value();
-    double iterations = ui->SpinBoxNumIt->value();
-    bool vxvrInd = ui->CheckVxVrSeparate->isChecked();
     bool safeHome = false;
+
+    iterations = ui->SpinBoxNumIt->value();
+    vxvrInd = ui->CheckVxVrSeparate->isChecked();
 
     ROS_INFO("Continuous run started");
 
@@ -368,6 +407,7 @@ bool CalibrationMain::startContinuousRun()
     else
     {
         // vx and vr are dependent -> check everything separately
+        // outer loop for xSpeed, inner loop for rotSpeed
         for(int i = 0; i<iterations; i++)
         {
             double _xSpeed = xSpeed + i*xSpeedInc;
